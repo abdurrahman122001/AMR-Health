@@ -1,0 +1,6 @@
+{/* Diagnosis Profile View */}
+{currentView === 'diagnosis-profile' && (
+  <div className="mt-6">
+    <DiagnosisProfileView />
+  </div>
+)}

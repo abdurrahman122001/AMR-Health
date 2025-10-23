@@ -1,0 +1,164 @@
+            {/* 5. AMU Prevalence by Hospital Ward */}
+            <Card className="border border-gray-200">
+              <CardHeader>
+                <CardTitle className="text-lg font-medium">AMU Prevalence by Hospital Ward</CardTitle>
+                <p className="text-sm text-gray-600 m-[0px]">Share of patients on ≥1 antimicrobial, by hospital ward</p>
+                
+                {/* Active Filters Display */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      Active Filters ({hospitalWardActiveFilters.length})
+                    </span>
+                    {hospitalWardActiveFilters.length > 0 && (
+                      <button
+                        onClick={hospitalWardFilterHelpers.clearAllFilters}
+                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter Tags */}
+                  <div className="flex flex-wrap gap-2">
+                    {hospitalWardActiveFilters.map((filter, index) => (
+                      <div
+                        key={index}
+                        className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full text-xs font-medium"
+                      >
+                        <span>{filter.label}</span>
+                        <button
+                          onClick={() => hospitalWardFilterHelpers.removeFilter(index)}
+                          className="text-gray-600 hover:text-gray-800 transition-colors"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {hospitalWardActiveFilters.length === 0 && (
+                    <p className="text-sm text-gray-500 italic">No active filters</p>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-6">
+                  {/* Main Chart Area */}
+                  <div className="flex-1">
+                    <ResponsiveContainer width="100%" height={350}>
+                      <BarChart data={getFilteredHospitalWardData()} margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis 
+                          dataKey="ward" 
+                          height={40}
+                          fontSize={10}
+                        />
+                        <YAxis 
+                          label={{ 
+                            value: '% Prevalence', 
+                            angle: -90, 
+                            position: 'insideLeft',
+                            style: { textAnchor: 'middle', fontSize: '13px', fontWeight: 'bold' }
+                          }}
+                          domain={[0, 100]}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <Tooltip 
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload[0]) {
+                              const data = payload[0].payload;
+                              const value = payload[0].value;
+                              
+                              // Risk level and color coding based on prevalence value
+                              const getRiskInfo = (prevalence: number) => {
+                                if (prevalence < 50) return { color: '#16a34a', level: 'Low usage' };
+                                if (prevalence < 75) return { color: '#f59e0b', level: 'Moderate usage' };
+                                return { color: '#dc2626', level: 'High usage' };
+                              };
+                              
+                              const riskInfo = getRiskInfo(value as number);
+                              
+                              return (
+                                <div className="bg-white border border-gray-200 rounded-md shadow-lg p-3 min-w-[200px]">
+                                  <div className="text-gray-900 font-medium mb-1">
+                                    {data.fullName}
+                                  </div>
+                                  <div className="text-gray-600 text-sm mb-2">
+                                    AMU Prevalence
+                                  </div>
+                                  <div className="mb-2">
+                                    <span 
+                                      className="font-medium"
+                                      style={{ color: riskInfo.color }}
+                                    >
+                                      {value}% prevalence rate ({riskInfo.level})
+                                    </span>
+                                  </div>
+                                  <div className="text-gray-500 text-sm">
+                                    {data.hospitals} hospitals, {data.patients} patients
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar dataKey="prevalence" fill="#059669" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Filter Panel */}
+                  <div className="w-64 bg-gray-50 rounded-lg p-4 border self-start" style={{ height: '315px' }}>
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-gray-900">Filter Ward Data</h3>
+                      
+                      {/* Filter Type */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter Type</label>
+                        <Select value={hospitalWardFilterType} onValueChange={setHospitalWardFilterType}>
+                          <SelectTrigger className="w-full text-sm">
+                            <SelectValue placeholder="Select filter type..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {filterTypeOptions.map(option => (
+                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Filter Value */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter Value</label>
+                        <Select 
+                          value={hospitalWardFilterValue} 
+                          onValueChange={setHospitalWardFilterValue}
+                          disabled={!hospitalWardFilterType}
+                        >
+                          <SelectTrigger className="w-full text-sm">
+                            <SelectValue placeholder={hospitalWardFilterType ? "Select value..." : "Select type first"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getFilterValueOptions(hospitalWardFilterType).map(option => (
+                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Add Filter Button */}
+                      <button
+                        onClick={hospitalWardFilterHelpers.addFilter}
+                        disabled={!hospitalWardFilterType || !hospitalWardFilterValue}
+                        className="w-full px-4 py-2 bg-gray-600 text-white rounded text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors"
+                      >
+                        Add Filter
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
