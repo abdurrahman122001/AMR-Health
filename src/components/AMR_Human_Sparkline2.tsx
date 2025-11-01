@@ -6,7 +6,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Download, ChevronDown, Check } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn } from './ui/utils';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // 12 Priority pathogen-antibiotic combinations
 const pathogenAntibioticPairs = [
@@ -24,7 +23,7 @@ const pathogenAntibioticPairs = [
   { organism: 'Streptococcus pneumoniae', antibiotic: 'Penicillin', formula: 'S_PNEUMONIAE_PENICILLIN' }
 ];
 
-// Standardized filter options - matching MDR_Incidence_Demographics (8 demographic/institutional filters)
+// Standardized filter options
 const filterTypeOptions = [
   { value: 'SEX', label: 'Sex' },
   { value: 'AGE_CAT', label: 'Age Category' },
@@ -38,9 +37,9 @@ const filterTypeOptions = [
 
 // Get resistance alert color based on percentage
 const getResistanceAlertColor = (percentage: number): string => {
-  if (percentage < 20) return '#16a34a'; // Green
-  if (percentage < 40) return '#eab308'; // Yellow
-  return '#dc2626'; // Red
+  if (percentage < 20) return '#16a34a';
+  if (percentage < 40) return '#eab308';
+  return '#dc2626';
 };
 
 // Format organism name according to scientific convention
@@ -72,7 +71,7 @@ const analyzeTrend = (trendData: any[]) => {
   const lastValue = validData[validData.length - 1].resistance;
   const change = lastValue - firstValue;
 
-  if (Math.abs(change) < 5) { // Less than 5% change is considered stable
+  if (Math.abs(change) < 5) {
     return { direction: 'stable', color: '#6b7280' };
   } else if (change > 0) {
     return { direction: 'increasing', color: '#dc2626' };
@@ -112,6 +111,17 @@ interface SparklineCombo {
   };
 }
 
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
 export function AMR_Human_Sparkline2() {
   const [activeFilters, setActiveFilters] = useState<Filter[]>([]);
   const [filterType, setFilterType] = useState<string>("");
@@ -120,297 +130,342 @@ export function AMR_Human_Sparkline2() {
   const [valueOpen, setValueOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sparklineData, setSparklineData] = useState<SparklineCombo[]>([]);
+  const [rawData, setRawData] = useState<any[]>([]);
 
-  // Dynamic filter value management
-  const [filterValueCache, setFilterValueCache] = useState<Record<string, FilterValueOption[]>>({});
-  const [loadingFilterValues, setLoadingFilterValues] = useState<Record<string, boolean>>({});
-  const [filterValueErrors, setFilterValueErrors] = useState<Record<string, string>>({});
+  // Helper function to extract unique values from raw data
+  const extractUniqueValues = (rows: any[], columnName: string): FilterValueOption[] => {
+    const uniqueValues = new Set();
+    
+    rows.forEach(row => {
+      const value = row[columnName];
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(value.toString().trim());
+      }
+    });
+    
+    const sortedValues = Array.from(uniqueValues).sort((a: any, b: any) => 
+      a.toString().localeCompare(b.toString())
+    );
+    
+    return sortedValues.map((value: any) => ({
+      value: value,
+      label: value
+    }));
+  };
 
-  // Fetch unique values for a specific column from AMR_HH table
-  const fetchFilterValues = async (columnName: string) => {
-    if (filterValueCache[columnName]) {
-      return filterValueCache[columnName];
+  // Helper function to determine resistance from zone size
+  const isResistant = (zoneSize: any, antibioticType: string): boolean => {
+    if (!zoneSize || zoneSize === '') return false;
+    
+    const zoneNum = parseFloat(zoneSize);
+    if (isNaN(zoneNum)) return false;
+
+    // Different breakpoints for different antibiotic classes
+    switch (antibioticType) {
+      case 'carbapenem':
+        return zoneNum <= 19; // Carbapenems breakpoint
+      case 'cephalosporin':
+        return zoneNum <= 22; // 3rd gen cephalosporins breakpoint
+      case 'vancomycin':
+        return zoneNum <= 17; // Vancomycin breakpoint
+      case 'methicillin':
+        return zoneNum <= 17; // Methicillin/Oxacillin breakpoint
+      case 'penicillin':
+        return zoneNum <= 15; // Penicillin breakpoint
+      default:
+        return zoneNum <= 15; // Default breakpoint for other antibiotics
     }
+  };
 
+  // Calculate resistance trends from raw data
+  const calculateResistanceTrends = (rows: any[]): SparklineCombo[] => {
+    console.log('Calculating resistance trends from', rows.length, 'rows');
+    
+    const results: SparklineCombo[] = [];
+
+    // Helper function to calculate resistance for specific organism patterns and antibiotics
+    const calculateResistanceForCombo = (
+      organismCodes: string[], 
+      antibioticTests: { column: string; type: string }[],
+      combinationName: string
+    ) => {
+      const yearData: { [year: string]: { resistant: number; total: number } } = {};
+
+      console.log(`Processing ${combinationName}:`, { organismCodes, antibioticTests });
+
+      rows.forEach(row => {
+        const organism = row.ORGANISM;
+        if (!organism) return;
+
+        // Check if organism matches any of the codes
+        const organismLower = organism.toLowerCase().trim();
+        const matchesOrganism = organismCodes.some(code => 
+          organismLower === code.toLowerCase()
+        );
+
+        if (matchesOrganism) {
+          const year = row.YEAR_SPEC;
+          if (!year) return;
+
+          // Initialize year data if not exists
+          if (!yearData[year]) {
+            yearData[year] = { resistant: 0, total: 0 };
+          }
+
+          // Check if any of the antibiotic tests show resistance
+          let hasTestResult = false;
+          let isResistant = false;
+
+          antibioticTests.forEach(test => {
+            const zoneSize = row[test.column];
+            if (zoneSize !== undefined && zoneSize !== null && zoneSize !== '') {
+              hasTestResult = true;
+              if (isResistant(zoneSize, test.type)) {
+                isResistant = true;
+              }
+            }
+          });
+
+          if (hasTestResult) {
+            yearData[year].total += 1;
+            if (isResistant) {
+              yearData[year].resistant += 1;
+            }
+          }
+        }
+      });
+
+      // Convert to trend data points
+      const trends: TrendDataPoint[] = Object.entries(yearData)
+        .map(([year, data]) => ({
+          year: parseInt(year),
+          resistance: data.total > 0 ? (data.resistant / data.total) * 100 : 0,
+          specimens: data.total,
+          total_tested: data.total
+        }))
+        .sort((a, b) => a.year - b.year);
+
+      // Calculate current resistance (latest year)
+      const currentResistance = trends.length > 0 ? trends[trends.length - 1].resistance : 0;
+
+      console.log(`${combinationName} results:`, {
+        years: Object.keys(yearData),
+        currentResistance,
+        trendsCount: trends.length
+      });
+
+      return {
+        trends,
+        currentResistance
+      };
+    };
+
+    // Calculate for each pathogen-antibiotic combination
+    pathogenAntibioticPairs.forEach(pair => {
+      let organismCodes: string[] = [];
+      let antibioticTests: { column: string; type: string }[] = [];
+
+      // Define mappings for each combination
+      switch (pair.formula) {
+        case 'A_BAUMANNII_CARBAPENEMS':
+          organismCodes = ['aba', 'acinetobacter baumannii'];
+          antibioticTests = [
+            { column: 'IPM ND10', type: 'carbapenem' },
+            { column: 'MEM ND10', type: 'carbapenem' }
+          ];
+          break;
+        case 'E_COLI_3G_CEPHALOSPORINS':
+          organismCodes = ['eco', 'escherichia coli'];
+          antibioticTests = [
+            { column: 'CTX ND30', type: 'cephalosporin' },
+            { column: 'CAZ ND30', type: 'cephalosporin' },
+            { column: 'CRO ND30', type: 'cephalosporin' }
+          ];
+          break;
+        case 'E_COLI_CARBAPENEMS':
+          organismCodes = ['eco', 'escherichia coli'];
+          antibioticTests = [
+            { column: 'IPM ND10', type: 'carbapenem' },
+            { column: 'MEM ND10', type: 'carbapenem' }
+          ];
+          break;
+        case 'ENTEROCOCCI_VANCOMYCIN':
+          organismCodes = ['efa', 'efm', 'enterococcus faecalis', 'enterococcus faecium'];
+          antibioticTests = [
+            { column: 'VAN ND30', type: 'vancomycin' }
+          ];
+          break;
+        case 'K_PNEUMONIAE_3G_CEPHALOSPORINS':
+          organismCodes = ['kpn', 'klebsiella pneumoniae'];
+          antibioticTests = [
+            { column: 'CTX ND30', type: 'cephalosporin' },
+            { column: 'CAZ ND30', type: 'cephalosporin' },
+            { column: 'CRO ND30', type: 'cephalosporin' }
+          ];
+          break;
+        case 'K_PNEUMONIAE_AMINOGLYCOSIDES':
+          organismCodes = ['kpn', 'klebsiella pneumoniae'];
+          antibioticTests = [
+            { column: 'GEN ND10', type: 'default' },
+            { column: 'AMK ND30', type: 'default' },
+            { column: 'TOB ND10', type: 'default' }
+          ];
+          break;
+        case 'K_PNEUMONIAE_CARBAPENEMS':
+          organismCodes = ['kpn', 'klebsiella pneumoniae'];
+          antibioticTests = [
+            { column: 'IPM ND10', type: 'carbapenem' },
+            { column: 'MEM ND10', type: 'carbapenem' }
+          ];
+          break;
+        case 'K_PNEUMONIAE_FLUOROQUINOLONES':
+          organismCodes = ['kpn', 'klebsiella pneumoniae'];
+          antibioticTests = [
+            { column: 'CIP ND5', type: 'default' },
+            { column: 'OFX ND5', type: 'default' },
+            { column: 'NOR ND10', type: 'default' }
+          ];
+          break;
+        case 'P_AERUGINOSA_CARBAPENEMS':
+          organismCodes = ['pae', 'pseudomonas aeruginosa'];
+          antibioticTests = [
+            { column: 'IPM ND10', type: 'carbapenem' },
+            { column: 'MEM ND10', type: 'carbapenem' }
+          ];
+          break;
+        case 'S_AUREUS_METHICILLIN':
+          organismCodes = ['sau', 'staphylococcus aureus'];
+          antibioticTests = [
+            { column: 'OXA ND1', type: 'methicillin' }
+          ];
+          break;
+        case 'S_PNEUMONIAE_3G_CEPHALOSPORINS':
+          organismCodes = ['spn', 'streptococcus pneumoniae'];
+          antibioticTests = [
+            { column: 'CTX ND30', type: 'cephalosporin' },
+            { column: 'CRO ND30', type: 'cephalosporin' }
+          ];
+          break;
+        case 'S_PNEUMONIAE_PENICILLIN':
+          organismCodes = ['spn', 'streptococcus pneumoniae'];
+          antibioticTests = [
+            { column: 'PEN ND10', type: 'penicillin' }
+          ];
+          break;
+        default:
+          organismCodes = [];
+          antibioticTests = [];
+      }
+
+      const { trends, currentResistance } = calculateResistanceForCombo(
+        organismCodes,
+        antibioticTests,
+        `${pair.organism} vs ${pair.antibiotic}`
+      );
+
+      results.push({
+        organism: pair.organism,
+        antibiotic: pair.antibiotic,
+        formula: pair.formula,
+        currentResistance,
+        trends,
+        trendInfo: analyzeTrend(trends)
+      });
+    });
+
+    console.log('Final sparkline results:', results);
+    return results;
+  };
+
+  // Fetch all data from local API endpoint
+  const fetchAllData = async () => {
     try {
-      setLoadingFilterValues(prev => ({ ...prev, [columnName]: true }));
-      setFilterValueErrors(prev => ({ ...prev, [columnName]: '' }));
-
-      console.log(`Fetching unique values for AMR_HH column: ${columnName}`);
+      setIsLoading(true);
       
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d`;
-      const response = await fetch(`${baseUrl}/amr-filter-values?column=${columnName}`, {
+      console.log('Fetching all AMR data from local API for Sparkline Trends...');
+      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
           'Content-Type': 'application/json'
         }
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const apiData: ApiResponse = await response.json();
+      console.log('Full API response received for Sparkline Trends:', apiData);
 
-        // Sort values alphabetically and create options
-        const sortedValues = (data.values || []).sort((a: string, b: string) => {
-          // Handle null/empty values
-          if (!a && !b) return 0;
-          if (!a) return 1;
-          if (!b) return -1;
-          return a.toString().localeCompare(b.toString());
+      if (!apiData.success || !apiData.data || !apiData.data.rows) {
+        throw new Error('Invalid API response format');
+      }
+
+      const rows = apiData.data.rows;
+      setRawData(rows);
+      
+      // Log sample data for debugging
+      console.log('Sample rows for debugging:', rows.slice(0, 5));
+      console.log('Available columns:', apiData.data.columns);
+      console.log('Organism values found:', [...new Set(rows.map(r => r.ORGANISM).filter(Boolean))].slice(0, 10));
+      console.log('Year values found:', [...new Set(rows.map(r => r.YEAR_SPEC).filter(Boolean))].sort());
+
+      // Apply active filters
+      let filteredRows = rows;
+      if (activeFilters.length > 0) {
+        filteredRows = rows.filter(row => {
+          return activeFilters.every(filter => {
+            const rowValue = row[filter.type];
+            return rowValue !== undefined && rowValue !== null && 
+                   rowValue.toString().toLowerCase() === filter.value.toLowerCase();
+          });
         });
-
-        const options: FilterValueOption[] = sortedValues.map((value: any) => ({
-          value: value?.toString() || 'null',
-          label: value?.toString() || '(Empty/Null)'
-        }));
-
-        // Cache the results
-        setFilterValueCache(prev => ({ ...prev, [columnName]: options }));
-        
-        return options;
-      } else {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+        console.log('After filtering:', filteredRows.length, 'rows');
       }
-    } catch (err) {
-      console.error(`Error fetching filter values for ${columnName}:`, err);
-      const errorMessage = err.message || 'Failed to fetch filter values';
-      setFilterValueErrors(prev => ({ ...prev, [columnName]: errorMessage }));
-      return [];
-    } finally {
-      setLoadingFilterValues(prev => ({ ...prev, [columnName]: false }));
-    }
-  };
-
-  const getFilterValueOptionsForType = (type: string) => {
-    return filterValueCache[type] || [];
-  };
-
-  // Load filter values when filter type changes
-  useEffect(() => {
-    if (filterType && !filterValueCache[filterType] && !loadingFilterValues[filterType]) {
-      fetchFilterValues(filterType);
-    }
-  }, [filterType]);
-
-  // Load all filter options on mount (matching MDR_Incidence_Demographics pattern)
-  useEffect(() => {
-    const loadAllFilterOptions = async () => {
-      console.log('Loading all filter options on mount...');
-      const filterColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
       
-      // Load all filter options in parallel
-      const loadPromises = filterColumns.map(column => fetchFilterValues(column));
-      await Promise.all(loadPromises);
-      
-      console.log('All filter options loaded');
-    };
-
-    loadAllFilterOptions();
-  }, []);
-
-  // Calculate resistance percentage using the formula: (ORGANISM = code AND resistance_column = 'R') / (ORGANISM = code)
-  const calculateResistancePercentage = (data: any[], organismCodes: string | string[], resistanceColumn: string): number => {
-    // Handle both single organism code and multiple organism codes (for Enterococci)
-    const codes = Array.isArray(organismCodes) ? organismCodes : [organismCodes];
-    
-    const totalCases = data.filter(record => codes.includes(record.ORGANISM)).length;
-    const resistantCases = data.filter(record => 
-      codes.includes(record.ORGANISM) && record[resistanceColumn] === 'R'
-    ).length;
-    
-    if (totalCases === 0) return 0;
-    return (resistantCases / totalCases) * 100;
-  };
-
-  // Map pathogen-antibiotic pairs to their organism codes and resistance columns
-  // This function now tries both new and old column names for backward compatibility
-  const getOrganismCodeAndColumn = (formula: string, availableColumns: string[] = []): { organismCode: string | string[]; resistanceColumn: string } => {
-    const mappingOptions = {
-      'A_BAUMANNII_CARBAPENEMS': { 
-        organismCode: 'ac-', 
-        resistanceColumn: availableColumns.includes('G_CARB_AC') ? 'G_CARB_AC' : 'G_CARB_AC' 
-      },
-      'E_COLI_3G_CEPHALOSPORINS': { 
-        organismCode: 'eco', 
-        resistanceColumn: availableColumns.includes('G_3GC_ECO') ? 'G_3GC_ECO' : 'G_3GC_EC' 
-      },
-      'E_COLI_CARBAPENEMS': { 
-        organismCode: 'eco', 
-        resistanceColumn: availableColumns.includes('G_CARB_ECO') ? 'G_CARB_ECO' : 'G_CARB_EC' 
-      },
-      'ENTEROCOCCI_VANCOMYCIN': { 
-        organismCode: ['ent', 'efa', 'efm'], 
-        resistanceColumn: availableColumns.includes('G_VAN_ENT') ? 'G_VAN_ENT' : 'G_VAN_EF' 
-      },
-      'K_PNEUMONIAE_3G_CEPHALOSPORINS': { 
-        organismCode: 'kpn', 
-        resistanceColumn: availableColumns.includes('G_3GC_KPN') ? 'G_3GC_KPN' : 'G_3GC_KP' 
-      },
-      'K_PNEUMONIAE_AMINOGLYCOSIDES': { 
-        organismCode: 'kpn', 
-        resistanceColumn: availableColumns.includes('G_AG_KPN') ? 'G_AG_KPN' : 'G_AMG_KP' 
-      },
-      'K_PNEUMONIAE_CARBAPENEMS': { 
-        organismCode: 'kpn', 
-        resistanceColumn: availableColumns.includes('G_CARB_KPN') ? 'G_CARB_KPN' : 'G_CARB_KP' 
-      },
-      'K_PNEUMONIAE_FLUOROQUINOLONES': { 
-        organismCode: 'kpn', 
-        resistanceColumn: availableColumns.includes('G_FQ_KPN') ? 'G_FQ_KPN' : 'G_FQ_KP' 
-      },
-      'P_AERUGINOSA_CARBAPENEMS': { 
-        organismCode: 'pae', 
-        resistanceColumn: availableColumns.includes('G_CARB_PAE') ? 'G_CARB_PAE' : 'G_CARB_PA' 
-      },
-      'S_AUREUS_METHICILLIN': { 
-        organismCode: 'sau', 
-        resistanceColumn: availableColumns.includes('G_METH_SAU') ? 'G_METH_SAU' : 'G_METH_SA' 
-      },
-      'S_PNEUMONIAE_3G_CEPHALOSPORINS': { 
-        organismCode: 'spn', 
-        resistanceColumn: availableColumns.includes('G_3GC_SPN') ? 'G_3GC_SPN' : 'G_3GC_SP' 
-      },
-      'S_PNEUMONIAE_PENICILLIN': { 
-        organismCode: 'spn', 
-        resistanceColumn: availableColumns.includes('G_PEN_SPN') ? 'G_PEN_SPN' : 'G_PEN_SP' 
-      }
-    };
-    
-    return mappingOptions[formula] || { organismCode: '', resistanceColumn: '' };
-  };
-
-  // Fetch trend data for all pathogen-antibiotic combinations with year-based endpoints
-  const fetchTrendData = async () => {
-    try {
-      setIsLoading(true);
-      console.log('Fetching sparkline data for all pathogen-antibiotic combinations...');
-
-      // Build filter query parameters
-      const filterParams = new URLSearchParams();
-      activeFilters.forEach(filter => {
-        filterParams.append(filter.type, filter.value);
-      });
-
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d`;
-      
-      // Define endpoint mappings for each pathogen-antibiotic combination
-      const endpointMappings = {
-        'A_BAUMANNII_CARBAPENEMS': 'amr-abaumannii-carbapenems-by-year',
-        'E_COLI_3G_CEPHALOSPORINS': 'amr-ecoli-3gcephalosporins-by-year',
-        'E_COLI_CARBAPENEMS': 'amr-ecoli-carbapenems-by-year',
-        'ENTEROCOCCI_VANCOMYCIN': 'amr-enterococci-vancomycin-by-year',
-        'K_PNEUMONIAE_3G_CEPHALOSPORINS': 'amr-kpneumoniae-3gcephalosporins-by-year',
-        'K_PNEUMONIAE_AMINOGLYCOSIDES': 'amr-kpneumoniae-aminoglycosides-by-year',
-        'K_PNEUMONIAE_CARBAPENEMS': 'amr-kpneumoniae-carbapenems-by-year',
-        'K_PNEUMONIAE_FLUOROQUINOLONES': 'amr-kpneumoniae-fluoroquinolones-by-year',
-        'P_AERUGINOSA_CARBAPENEMS': 'amr-paeruginosa-carbapenems-by-year',
-        'S_AUREUS_METHICILLIN': 'amr-saureus-methicillin-by-year',
-        'S_PNEUMONIAE_3G_CEPHALOSPORINS': 'amr-spneumoniae-3gcephalosporins-by-year',
-        'S_PNEUMONIAE_PENICILLIN': 'amr-spneumoniae-penicillin-by-year'
-      };
-
-      // Fetch data for all implemented combinations in parallel
-      const sparklinePromises = pathogenAntibioticPairs.map(async (pair) => {
-        const endpoint = endpointMappings[pair.formula];
-        
-        if (!endpoint) {
-          // This should not happen since all 11 combinations now have endpoints
-          console.warn(`No endpoint mapping found for ${pair.formula}! This combination may need implementation.`);
-          return {
-            organism: pair.organism,
-            antibiotic: pair.antibiotic,
-            formula: pair.formula,
-            currentResistance: 0,
-            trends: [],
-            trendInfo: { direction: 'stable', color: '#6b7280' }
-          };
-        }
-
-        try {
-          const url = `${baseUrl}/${endpoint}?${filterParams.toString()}`;
-          console.log(`Fetching ${pair.organism} vs ${pair.antibiotic} from: ${url}`);
-          
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Failed to fetch ${pair.formula}:`, errorText);
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-          }
-
-          const data = await response.json();
-          console.log(`${pair.organism} vs ${pair.antibiotic} data received:`, {
-            currentResistance: data.currentResistance,
-            yearDataPoints: data.yearData?.length || 0
-          });
-          
-          // Process data into sparkline format
-          const sparklineCombo: SparklineCombo = {
-            organism: pair.organism,
-            antibiotic: pair.antibiotic,
-            formula: pair.formula,
-            currentResistance: data.currentResistance || 0,
-            trends: data.yearData || [],
-            trendInfo: analyzeTrend(data.yearData || [])
-          };
-
-          return sparklineCombo;
-          
-        } catch (error) {
-          console.error(`Error fetching ${pair.formula}:`, error);
-          // Return placeholder on error
-          return {
-            organism: pair.organism,
-            antibiotic: pair.antibiotic,
-            formula: pair.formula,
-            currentResistance: 0,
-            trends: [],
-            trendInfo: { direction: 'stable', color: '#6b7280' }
-          };
-        }
-      });
-
-      // Wait for all requests to complete
-      const sparklineResults = await Promise.all(sparklinePromises);
-      
-      // Log summary of results
-      const implementedCount = sparklineResults.filter(combo => combo.trends.length > 0).length;
-      const placeholderCount = sparklineResults.filter(combo => combo.trends.length === 0).length;
-      
-      console.log('Sparkline data processing complete:', {
-        totalCombinations: sparklineResults.length,
-        implementedWithData: implementedCount,
-        placeholders: placeholderCount,
-        implementedFormulas: sparklineResults
-          .filter(combo => combo.trends.length > 0)
-          .map(combo => combo.formula)
-      });
-      
-      setSparklineData(sparklineResults);
+      // Process trend data from filtered rows
+      const processedData = calculateResistanceTrends(filteredRows);
+      setSparklineData(processedData);
       
     } catch (error) {
-      console.error('Error fetching sparkline trend data:', error);
-      // Set empty data on error
+      console.error('Error fetching AMR data from local API for Sparkline Trends:', error);
       setSparklineData([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch data when filters change
+  // Filter configs using dynamic options from API data
+  const filterConfigs = useMemo(() => {
+    const configs: Record<string, { label: string; options: FilterValueOption[] }> = {};
+
+    const configMapping: Record<string, string> = {
+      'SEX': 'Sex',
+      'AGE_CAT': 'Age Category',
+      'PAT_TYPE': 'Patient Type',
+      'INSTITUTION': 'Institution',
+      'DEPARTMENT': 'Department',
+      'WARD_TYPE': 'Ward Type',
+      'YEAR_SPEC': 'Year Specimen',
+      'X_REGION': 'Region'
+    };
+
+    // Populate with data when available
+    if (rawData.length > 0) {
+      Object.entries(configMapping).forEach(([key, label]) => {
+        configs[key.toLowerCase()] = {
+          label,
+          options: extractUniqueValues(rawData, key)
+        };
+      });
+    }
+
+    return configs;
+  }, [rawData]);
+
+  // Fetch data on component mount and when filters change
   useEffect(() => {
-    fetchTrendData();
+    fetchAllData();
   }, [activeFilters]);
 
   // Filter helper functions
@@ -455,6 +510,12 @@ export function AMR_Human_Sparkline2() {
   // Get filter type options
   const getFilterTypeOptions = () => {
     return filterTypeOptions;
+  };
+
+  // Get filter value options for selected type
+  const getFilterValueOptionsForType = (type: string) => {
+    const config = filterConfigs[type as keyof typeof filterConfigs];
+    return config?.options || [];
   };
 
   return (
@@ -631,6 +692,15 @@ export function AMR_Human_Sparkline2() {
           </div>
         )}
 
+        {/* Debug Info */}
+        {!isLoading && rawData.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-700">
+              Loaded {rawData.length} records. Check console for detailed data analysis.
+            </p>
+          </div>
+        )}
+
         {/* Sparkline Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {sparklineData.map((combo, index) => (
@@ -641,7 +711,7 @@ export function AMR_Human_Sparkline2() {
                   className="text-lg font-bold"
                   style={{ color: getResistanceAlertColor(combo.currentResistance) }}
                 >
-                  {combo.currentResistance}%
+                  {combo.currentResistance > 0 ? combo.currentResistance.toFixed(1) : '0.0'}%
                 </span>
                 <div 
                   className="text-xs font-medium"
@@ -671,114 +741,115 @@ export function AMR_Human_Sparkline2() {
                   <span>0</span>
                 </div>
                 <div className="ml-6 h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart 
-                      data={[...combo.trends].sort((a, b) => a.year - b.year)}
-                      margin={{ top: 2, right: 2, left: 2, bottom: 2 }}
-                    >
-                      <XAxis 
-                        dataKey="year"
-                        type="number"
-                        scale="linear"
-                        domain={['dataMin', 'dataMax']}
-                        hide
-                      />
-                      <YAxis 
-                        domain={[0, 100]}
-                        hide
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="resistance" 
-                        stroke={combo.trendInfo.color}
-                        strokeWidth={2.5}
-                        dot={(props) => {
-                          const { payload, cx, cy, index } = props;
-                          const specimenCount = payload?.total_tested || payload?.specimens || 0;
-                          const isLowSample = specimenCount < 30;
-                          const resistanceValue = payload?.resistance || 0;
-                          
-                          return (
-                            <circle
-                              key={`dot-${combo.organism}-${combo.antibiotic}-${index}`}
-                              cx={cx}
-                              cy={cy}
-                              r={2}
-                              fill={isLowSample ? '#9ca3af' : getResistanceAlertColor(resistanceValue)}
-                              stroke={isLowSample ? '#6b7280' : getResistanceAlertColor(resistanceValue)}
-                              strokeWidth={0.8}
-                              style={{ opacity: isLowSample ? 0.6 : 1 }}
-                            />
-                          );
-                        }}
-                        activeDot={(props) => {
-                          const { payload, cx, cy, index } = props;
-                          const specimenCount = payload?.total_tested || payload?.specimens || 0;
-                          const isLowSample = specimenCount < 30;
-                          const resistanceValue = payload?.resistance || 0;
-                          
-                          return (
-                            <circle
-                              key={`active-dot-${combo.organism}-${combo.antibiotic}-${index}`}
-                              cx={cx}
-                              cy={cy}
-                              r={4}
-                              fill={isLowSample ? '#9ca3af' : getResistanceAlertColor(resistanceValue)}
-                              stroke="#fff"
-                              strokeWidth={2}
-                            />
-                          );
-                        }}
-                        connectNulls={false}
-                      />
-                      <Tooltip
-                        content={({ active, payload, label }) => {
-                          if (active && payload && payload.length) {
-                            const data = payload[0].payload;
-                            const specimenCount = data?.total_tested || data?.specimens || 0;
-                            const resistantCount = data?.resistant_count || data?.resistant || 0;
-                            const resistance = data?.resistance || 0;
-                            const year = data?.year || label;
+                  {combo.trends.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart 
+                        data={[...combo.trends].sort((a, b) => a.year - b.year)}
+                        margin={{ top: 2, right: 2, left: 2, bottom: 2 }}
+                      >
+                        <XAxis 
+                          dataKey="year"
+                          type="number"
+                          scale="linear"
+                          domain={['dataMin', 'dataMax']}
+                          hide
+                        />
+                        <YAxis 
+                          domain={[0, 100]}
+                          hide
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="resistance" 
+                          stroke={combo.trendInfo.color}
+                          strokeWidth={2.5}
+                          dot={(props) => {
+                            const { payload, cx, cy } = props;
+                            const specimenCount = payload?.total_tested || payload?.specimens || 0;
+                            const isLowSample = specimenCount < 30;
+                            const resistanceValue = payload?.resistance || 0;
                             
                             return (
-                              <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-3 text-sm">
-                                <div className="font-medium text-gray-900 mb-1">
-                                  {year}
-                                </div>
-                                <div className="space-y-1">
-                                  <div style={{ color: getResistanceAlertColor(resistance) }}>
-                                    <span className="font-medium">{resistance.toFixed(1)}%</span> resistance
-                                  </div>
-                                  <div className="text-gray-600 text-xs">
-                                    {resistantCount}/{specimenCount} isolates
-                                  </div>
-                                  {specimenCount < 30 && (
-                                    <div className="text-amber-600 text-xs">
-                                      ⚠ Low sample size
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={2}
+                                fill={isLowSample ? '#9ca3af' : getResistanceAlertColor(resistanceValue)}
+                                stroke={isLowSample ? '#6b7280' : getResistanceAlertColor(resistanceValue)}
+                                strokeWidth={0.8}
+                                style={{ opacity: isLowSample ? 0.6 : 1 }}
+                              />
                             );
-                          }
-                          return null;
-                        }}
-                        cursor={{ stroke: '#6b7280', strokeWidth: 1, strokeDasharray: '3 3' }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                          }}
+                          activeDot={(props) => {
+                            const { payload, cx, cy } = props;
+                            const specimenCount = payload?.total_tested || payload?.specimens || 0;
+                            const isLowSample = specimenCount < 30;
+                            const resistanceValue = payload?.resistance || 0;
+                            
+                            return (
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={4}
+                                fill={isLowSample ? '#9ca3af' : getResistanceAlertColor(resistanceValue)}
+                                stroke="#fff"
+                                strokeWidth={2}
+                              />
+                            );
+                          }}
+                          connectNulls={false}
+                        />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const specimenCount = data?.total_tested || data?.specimens || 0;
+                              const resistantCount = Math.round((data?.resistance / 100) * specimenCount);
+                              const resistance = data?.resistance || 0;
+                              const year = data?.year;
+                              
+                              return (
+                                <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-3 text-sm">
+                                  <div className="font-medium text-gray-900 mb-1">
+                                    {year}
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div style={{ color: getResistanceAlertColor(resistance) }}>
+                                      <span className="font-medium">{resistance.toFixed(1)}%</span> resistance
+                                    </div>
+                                    <div className="text-gray-600 text-xs">
+                                      {resistantCount}/{specimenCount} isolates
+                                    </div>
+                                    {specimenCount < 30 && (
+                                      <div className="text-amber-600 text-xs">
+                                        ⚠ Low sample size
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                          cursor={{ stroke: '#6b7280', strokeWidth: 1, strokeDasharray: '3 3' }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                      No data
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Time Axis - YEAR_SPEC Range */}
               <div className="flex justify-between text-xs text-gray-500 mt-1 ml-6">
-                <span>{combo.trends[0]?.year}</span>
+                <span>{combo.trends[0]?.year || 'N/A'}</span>
                 <span className="text-center flex-1 text-gray-400 text-[11px]">R% by YEAR_SPEC</span>
-                <span>{combo.trends[combo.trends.length - 1]?.year}</span>
+                <span>{combo.trends[combo.trends.length - 1]?.year || 'N/A'}</span>
               </div>
-              
-              {/* Data Points Summary */}
-
             </div>
           ))}
         </div>

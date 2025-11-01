@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from './ui/card';
 import { TestTube, Building2, Eye, Shield, BarChart3, AlertTriangle } from 'lucide-react';
-import { makeServerRequest } from '../utils/supabase/client';
 
 interface SummaryCardProps {
   title: string;
@@ -45,6 +44,17 @@ function SummaryCard({ title, value, subtitle, icon, color = 'default' }: Summar
   );
 }
 
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
 export function SummaryCards() {
   // State for database counts
   const [amrHHOrganisms, setAmrHHOrganisms] = useState<number>(0);
@@ -56,110 +66,250 @@ export function SummaryCards() {
   const [overallResistancePercentage, setOverallResistancePercentage] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch real database counts from AMR_HH table
+  // Helper function to extract unique organisms count
+  const extractUniqueOrganisms = (rows: any[]): number => {
+    const uniqueOrganisms = new Set();
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+        uniqueOrganisms.add(organism.toLowerCase());
+      }
+    });
+    return uniqueOrganisms.size;
+  };
+
+  // Helper function to extract total isolates count (valid organism + some AST data)
+  const extractTotalIsolates = (rows: any[]): number => {
+    let isolateCount = 0;
+    const antibioticColumns = ['AMP ND10', 'AMC ND20', 'CTX ND30', 'CAZ ND30', 'CRO ND30', 'IPM ND10', 'MEM ND10', 'CIP ND5', 'GEN ND10', 'AMK ND30'];
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+        // Check if there's at least one antibiotic test result
+        const hasAST = antibioticColumns.some(abx => {
+          const value = row[abx];
+          return value !== undefined && value !== null && value !== '';
+        });
+        
+        if (hasAST) {
+          isolateCount++;
+        }
+      }
+    });
+    return isolateCount;
+  };
+
+  // Helper function to extract cultured specimens count
+  const extractCulturedSpecimens = (rows: any[]): number => {
+    let culturedCount = 0;
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim()) {
+        culturedCount++;
+      }
+    });
+    return culturedCount;
+  };
+
+  // Helper function to extract unique institutions count
+  const extractUniqueInstitutions = (rows: any[]): number => {
+    const uniqueInstitutions = new Set();
+    rows.forEach(row => {
+      const institution = row.INSTITUTION;
+      if (institution && institution.trim()) {
+        uniqueInstitutions.add(institution.toLowerCase());
+      }
+    });
+    return uniqueInstitutions.size;
+  };
+
+  // Helper function to calculate MDR rate (simplified calculation)
+  const calculateMdrRate = (rows: any[]): number => {
+    // This is a simplified MDR calculation - adjust based on your actual MDR criteria
+    let mdrCases = 0;
+    let totalPatients = new Set();
+    
+    rows.forEach(row => {
+      const patientId = row['PATIENT ID'];
+      if (patientId) {
+        totalPatients.add(patientId);
+        
+        // Simplified MDR detection: resistant to at least 3 antibiotic classes
+        const resistanceCount = countResistanceClasses(row);
+        if (resistanceCount >= 3) {
+          mdrCases++;
+        }
+      }
+    });
+    
+    const totalAdmissions = totalPatients.size;
+    return totalAdmissions > 0 ? (mdrCases / totalAdmissions) * 1000 : 0; // per 1000 admissions
+  };
+
+  // Helper function to count resistance classes for a row
+  const countResistanceClasses = (row: any): number => {
+    const classResistance: { [key: string]: boolean } = {};
+    
+    // Beta-lactams
+    if (isResistant(row['AMP ND10']) || isResistant(row['AMC ND20']) || 
+        isResistant(row['CTX ND30']) || isResistant(row['CAZ ND30']) || 
+        isResistant(row['CRO ND30'])) {
+      classResistance.betaLactam = true;
+    }
+    
+    // Carbapenems
+    if (isResistant(row['IPM ND10']) || isResistant(row['MEM ND10'])) {
+      classResistance.carbapenem = true;
+    }
+    
+    // Fluoroquinolones
+    if (isResistant(row['CIP ND5'])) {
+      classResistance.fluoroquinolone = true;
+    }
+    
+    // Aminoglycosides
+    if (isResistant(row['GEN ND10']) || isResistant(row['AMK ND30'])) {
+      classResistance.aminoglycoside = true;
+    }
+    
+    // Tetracyclines
+    if (isResistant(row['TCY ND30'])) {
+      classResistance.tetracycline = true;
+    }
+    
+    // Sulfonamides
+    if (isResistant(row['SXT ND1 2'])) {
+      classResistance.sulfonamide = true;
+    }
+    
+    return Object.keys(classResistance).length;
+  };
+
+  // Helper function to determine resistance from zone size
+  const isResistant = (zoneSize: any): boolean => {
+    if (!zoneSize || zoneSize === '') return false;
+    const zoneNum = parseFloat(zoneSize);
+    return !isNaN(zoneNum) && zoneNum <= 15; // Simplified resistance breakpoint
+  };
+
+  // Helper function to calculate MDR bacteria percentage
+  const calculateMdrBacteriaPercentage = (rows: any[]): number => {
+    let mdrBacteriaCount = 0;
+    let totalIndicatorOrganisms = 0;
+    const indicatorOrganisms = ['eco', 'kpn', 'pae', 'aba', 'sau'];
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && indicatorOrganisms.includes(organism.toLowerCase())) {
+        totalIndicatorOrganisms++;
+        const resistanceCount = countResistanceClasses(row);
+        if (resistanceCount >= 3) {
+          mdrBacteriaCount++;
+        }
+      }
+    });
+    
+    return totalIndicatorOrganisms > 0 ? (mdrBacteriaCount / totalIndicatorOrganisms) * 100 : 0;
+  };
+
+  // Helper function to calculate overall resistance percentage
+  const calculateOverallResistancePercentage = (rows: any[]): number => {
+    let resistantIsolates = 0;
+    let totalIsolatesWithAST = 0;
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+        // Check if there's at least one antibiotic test result
+        const antibioticColumns = ['AMP ND10', 'AMC ND20', 'CTX ND30', 'CAZ ND30', 'CRO ND30', 'IPM ND10', 'MEM ND10', 'CIP ND5', 'GEN ND10', 'AMK ND30'];
+        const hasAST = antibioticColumns.some(abx => {
+          const value = row[abx];
+          return value !== undefined && value !== null && value !== '';
+        });
+        
+        if (hasAST) {
+          totalIsolatesWithAST++;
+          // Consider resistant if resistant to at least one antibiotic class
+          const resistanceCount = countResistanceClasses(row);
+          if (resistanceCount > 0) {
+            resistantIsolates++;
+          }
+        }
+      }
+    });
+    
+    return totalIsolatesWithAST > 0 ? (resistantIsolates / totalIsolatesWithAST) * 100 : 0;
+  };
+
+  // Fetch all data from local API endpoint
   useEffect(() => {
-    const fetchAMRDatabaseCounts = async () => {
+    const fetchAllData = async () => {
       try {
         setIsLoading(true);
         
-        // Fetch unique organism count from AMR_HH table (excluding NULL and 'xxx')
-        const organismsResponse = await makeServerRequest('/amr-hh-total');
-        if (organismsResponse.success && typeof organismsResponse.total === 'number') {
-          setAmrHHOrganisms(organismsResponse.total);
-          console.log('AMR_HH unique organisms count:', organismsResponse.total);
-          if (organismsResponse.sampleOrganisms) {
-            console.log('Sample organisms:', organismsResponse.sampleOrganisms);
+        console.log('Fetching all AMR data from local API for SummaryCards...');
+        const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
-        } else {
-          console.error('Failed to fetch AMR_HH organisms:', organismsResponse.error || 'Invalid response format');
-          setAmrHHOrganisms(0);
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const apiData: ApiResponse = await response.json();
+        console.log('Full API response received for SummaryCards:', apiData);
+
+        if (!apiData.success || !apiData.data || !apiData.data.rows) {
+          throw new Error('Invalid API response format');
         }
 
-        // Fetch total isolates count from AMR_HH table (valid organism + valid AST)
-        const isolatesResponse = await makeServerRequest('/amr-hh-isolates-total');
-        if (isolatesResponse.success && typeof isolatesResponse.total === 'number') {
-          setAmrHHIsolates(isolatesResponse.total);
-          console.log('AMR_HH total isolates:', isolatesResponse.total);
-        } else {
-          console.error('Failed to fetch AMR_HH total isolates:', isolatesResponse.error || 'Invalid response format');
-          setAmrHHIsolates(0);
-        }
+        const rows = apiData.data.rows;
+        const totalRows = apiData.data.totalRows;
 
-        // Fetch total cultured specimens count from AMR_HH table (ORGANISM is not NULL)
-        const culturedSpecimensResponse = await makeServerRequest('/amr-hh-cultured-specimens');
-        if (culturedSpecimensResponse.success && typeof culturedSpecimensResponse.total === 'number') {
-          setAmrHHCulturedSpecimens(culturedSpecimensResponse.total);
-          console.log('AMR_HH total cultured specimens:', culturedSpecimensResponse.total);
-        } else {
-          console.error('Failed to fetch AMR_HH cultured specimens:', culturedSpecimensResponse.error || 'Invalid response format');
-          setAmrHHCulturedSpecimens(0);
-        }
+        console.log(`Processing ${rows.length} rows for SummaryCards calculations`);
 
-        // Fetch unique institutions count from AMR_HH table
-        const institutionsResponse = await makeServerRequest('/amr-hh-institutions');
-        if (institutionsResponse.success && typeof institutionsResponse.total === 'number') {
-          setAmrHHInstitutions(institutionsResponse.total);
-          console.log('AMR_HH unique institutions count:', institutionsResponse.total);
-          if (institutionsResponse.sampleInstitutions) {
-            console.log('Sample institutions:', institutionsResponse.sampleInstitutions);
-          }
-        } else {
-          console.error('Failed to fetch AMR_HH institutions:', institutionsResponse.error || 'Invalid response format');
-          setAmrHHInstitutions(0);
-        }
+        // 1. Calculate unique organisms count
+        const uniqueOrganisms = extractUniqueOrganisms(rows);
+        setAmrHHOrganisms(uniqueOrganisms);
+        console.log('Unique organisms calculated:', uniqueOrganisms);
 
-        // Fetch MDR rate calculation from AMR_HH table (with VALID_AST filter)
-        const mdrResponse = await makeServerRequest('/amr-mdr-calculation');
-        if (mdrResponse.success && typeof mdrResponse.mdrRate === 'number') {
-          setMdrRate(mdrResponse.mdrRate);
-          console.log('MDR rate calculation:', {
-            mdrRate: mdrResponse.mdrRate,
-            mdrCases: mdrResponse.mdrCases,
-            totalAdmissions: mdrResponse.totalAdmissions,
-            calculation: mdrResponse.calculation,
-            methodology: mdrResponse.methodology
-          });
-        } else {
-          console.error('Failed to fetch MDR calculation:', mdrResponse.error || 'Invalid response format');
-          setMdrRate(0);
-        }
+        // 2. Calculate total isolates count
+        const totalIsolates = extractTotalIsolates(rows);
+        setAmrHHIsolates(totalIsolates);
+        console.log('Total isolates calculated:', totalIsolates);
 
-        // Fetch MDR bacteria percentage calculation from AMR_HH table
-        const mdrBacteriaResponse = await makeServerRequest('/amr-mdr-bacteria');
-        if (mdrBacteriaResponse.success && typeof mdrBacteriaResponse.mdrPercentage === 'number') {
-          setMdrBacteriaPercentage(mdrBacteriaResponse.mdrPercentage);
-          console.log('MDR bacteria percentage calculation:', {
-            mdrPercentage: mdrBacteriaResponse.mdrPercentage,
-            mdrCases: mdrBacteriaResponse.mdrCases,
-            totalIndicatorOrganisms: mdrBacteriaResponse.totalIndicatorOrganisms,
-            calculation: mdrBacteriaResponse.calculation,
-            methodology: mdrBacteriaResponse.methodology,
-            organismBreakdown: mdrBacteriaResponse.organismBreakdown
-          });
-        } else {
-          console.error('Failed to fetch MDR bacteria calculation:', mdrBacteriaResponse.error || 'Invalid response format');
-          setMdrBacteriaPercentage(0);
-        }
+        // 3. Calculate cultured specimens count
+        const culturedSpecimens = extractCulturedSpecimens(rows);
+        setAmrHHCulturedSpecimens(culturedSpecimens);
+        console.log('Cultured specimens calculated:', culturedSpecimens);
 
-        // Fetch overall resistance percentage from AMR_HH table (ANY_R = TRUE, organisms with >30 isolates)
-        const overallResistanceResponse = await makeServerRequest('/overall-resistance-percentage');
-        if (overallResistanceResponse.success && typeof overallResistanceResponse.percentage === 'number') {
-          setOverallResistancePercentage(overallResistanceResponse.percentage);
-          console.log('Overall resistance percentage calculation (30+ isolate minimum):', {
-            percentage: overallResistanceResponse.percentage,
-            totalIsolates: overallResistanceResponse.total_isolates,
-            resistantIsolates: overallResistanceResponse.resistant_isolates,
-            organismsIncluded: overallResistanceResponse.organisms_included,
-            organismsExcluded: overallResistanceResponse.organisms_excluded,
-            calculation: overallResistanceResponse.calculation,
-            organismBreakdown: overallResistanceResponse.organism_breakdown
-          });
-        } else {
-          console.error('Failed to fetch overall resistance percentage:', overallResistanceResponse.error || 'Invalid response format');
-          setOverallResistancePercentage(0);
-        }
+        // 4. Calculate unique institutions count
+        const uniqueInstitutions = extractUniqueInstitutions(rows);
+        setAmrHHInstitutions(uniqueInstitutions);
+        console.log('Unique institutions calculated:', uniqueInstitutions);
+
+        // 5. Calculate MDR rate
+        const calculatedMdrRate = calculateMdrRate(rows);
+        setMdrRate(calculatedMdrRate);
+        console.log('MDR rate calculated:', calculatedMdrRate);
+
+        // 6. Calculate MDR bacteria percentage
+        const calculatedMdrBacteriaPercentage = calculateMdrBacteriaPercentage(rows);
+        setMdrBacteriaPercentage(calculatedMdrBacteriaPercentage);
+        console.log('MDR bacteria percentage calculated:', calculatedMdrBacteriaPercentage);
+
+        // 7. Calculate overall resistance percentage
+        const calculatedOverallResistance = calculateOverallResistancePercentage(rows);
+        setOverallResistancePercentage(calculatedOverallResistance);
+        console.log('Overall resistance percentage calculated:', calculatedOverallResistance);
+
       } catch (error) {
-        console.error('Error fetching AMR_HH database counts:', error);
+        console.error('Error fetching AMR data from local API for SummaryCards:', error);
+        // Set fallback values
         setAmrHHOrganisms(0);
         setAmrHHIsolates(0);
         setAmrHHCulturedSpecimens(0);
@@ -172,7 +322,7 @@ export function SummaryCards() {
       }
     };
 
-    fetchAMRDatabaseCounts();
+    fetchAllData();
   }, []);
   
   // Calculate culture positive rate

@@ -1,17 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
-import { Tooltip as TooltipComponent, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell, LabelList } from 'recharts';
 import { Download, ChevronDown, Check } from 'lucide-react';  
 import { cn } from './ui/utils';
-import { LowSampleLabel } from './LowSampleLabel';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Priority pathogen-antibiotic combinations resistance data
-// These will be calculated from AMR_HH table with specific formulas to be provided
 const resistanceData = [
   { organism: 'Acinetobacter baumannii', antibiotic: 'Carbapenems', rate: 0, resistant: 0, total: 0, formula: 'A_BAUMANNII_CARBAPENEMS' },
   { organism: 'Escherichia coli', antibiotic: '3G Cephalosporins', rate: 0, resistant: 0, total: 0, formula: 'E_COLI_3G_CEPHALOSPORINS' },
@@ -27,7 +23,7 @@ const resistanceData = [
   { organism: 'Streptococcus pneumoniae', antibiotic: 'Penicillin', rate: 0, resistant: 0, total: 0, formula: 'S_PNEUMONIAE_PENICILLIN' }
 ];
 
-// Standardized filter options - matching AMR_Human_Sparkline2 (8 demographic/institutional filters)
+// Standardized filter options
 const filterTypeOptions = [
   { value: 'SEX', label: 'Sex' },
   { value: 'AGE_CAT', label: 'Age Category' },
@@ -41,9 +37,9 @@ const filterTypeOptions = [
 
 // Get resistance alert color based on percentage
 const getResistanceAlertColor = (percentage: number): string => {
-  if (percentage < 20) return '#16a34a'; // Green
-  if (percentage < 40) return '#eab308'; // Yellow
-  return '#dc2626'; // Red
+  if (percentage < 20) return '#16a34a';
+  if (percentage < 40) return '#eab308';
+  return '#dc2626';
 };
 
 // Format organism name according to scientific convention
@@ -72,6 +68,28 @@ interface FilterValueOption {
   label: string;
 }
 
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
+interface ResistanceDataItem {
+  organism: string;
+  antibiotic: string;
+  rate: number;
+  resistant: number;
+  total: number;
+  formula: string;
+  displayName?: string;
+  color?: string;
+}
+
 export function AMR_Human_Overview_PriorityBars() {
   const [filterType, setFilterType] = useState<string>('');
   const [filterValue, setFilterValue] = useState<string>('');
@@ -95,221 +113,219 @@ export function AMR_Human_Overview_PriorityBars() {
     S_PNEUMONIAE_PENICILLIN?: any;
   }>({});
 
-  // Dynamic filter value management - matching AMR_Human_Sparkline2
   const [filterValueCache, setFilterValueCache] = useState<Record<string, FilterValueOption[]>>({});
-  const [loadingFilterValues, setLoadingFilterValues] = useState<Record<string, boolean>>({});
-  const [filterValueErrors, setFilterValueErrors] = useState<Record<string, string>>({});
 
-  // Fetch unique values for a specific column from AMR_HH table
-  const fetchFilterValues = async (columnName: string) => {
-    if (filterValueCache[columnName]) {
-      return filterValueCache[columnName];
-    }
+  // Helper function to extract unique values from raw data
+  const extractUniqueValues = (rows: any[], columnName: string): FilterValueOption[] => {
+    const uniqueValues = new Set();
+    
+    rows.forEach(row => {
+      const value = row[columnName];
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(value.toString().trim());
+      }
+    });
+    
+    const sortedValues = Array.from(uniqueValues).sort((a: any, b: any) => 
+      a.toString().localeCompare(b.toString())
+    );
+    
+    return sortedValues.map((value: any) => ({
+      value: value,
+      label: value
+    }));
+  };
 
+  // Fetch all data from local API endpoint
+  const fetchAllData = async () => {
     try {
-      setLoadingFilterValues(prev => ({ ...prev, [columnName]: true }));
-      setFilterValueErrors(prev => ({ ...prev, [columnName]: '' }));
-
-      console.log(`Fetching unique values for AMR_HH column: ${columnName}`);
+      setIsLoading(true);
       
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d`;
-      const response = await fetch(`${baseUrl}/amr-filter-values?column=${columnName}`, {
+      console.log('Fetching all AMR data from local API for Priority Bars...');
+      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
           'Content-Type': 'application/json'
         }
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
-        // Sort values alphabetically and create options
-        const sortedValues = (data.values || []).sort((a: string, b: string) => {
-          // Handle null/empty values
-          if (!a && !b) return 0;
-          if (!a) return 1;
-          if (!b) return -1;
-          return a.toString().localeCompare(b.toString());
-        });
-
-        const options: FilterValueOption[] = sortedValues.map((value: any) => ({
-          value: value?.toString() || 'null',
-          label: value?.toString() || '(Empty/Null)'
-        }));
-
-        // Cache the results
-        setFilterValueCache(prev => ({ ...prev, [columnName]: options }));
-        
-        return options;
-      } else {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (err: any) {
-      console.error(`Error fetching filter values for ${columnName}:`, err);
-      const errorMessage = err.message || 'Failed to fetch filter values';
-      setFilterValueErrors(prev => ({ ...prev, [columnName]: errorMessage }));
-      return [];
-    } finally {
-      setLoadingFilterValues(prev => ({ ...prev, [columnName]: false }));
-    }
-  };
-
-  const getFilterValueOptionsForType = (type: string) => {
-    return filterValueCache[type] || [];
-  };
-
-  // Load filter values when filter type changes
-  useEffect(() => {
-    if (filterType && !filterValueCache[filterType] && !loadingFilterValues[filterType]) {
-      fetchFilterValues(filterType);
-    }
-  }, [filterType]);
-
-  // Load all filter options on mount (matching AMR_Human_Sparkline2 pattern)
-  useEffect(() => {
-    const loadAllFilterOptions = async () => {
-      console.log('Loading all filter options on mount...');
-      const filterColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
       
-      // Load all filter options in parallel
-      const loadPromises = filterColumns.map(column => fetchFilterValues(column));
-      await Promise.all(loadPromises);
-      
-      console.log('All filter options loaded');
-    };
+      const apiData: ApiResponse = await response.json();
+      console.log('Full API response received for Priority Bars:', apiData);
 
-    loadAllFilterOptions();
-  }, []);
+      if (!apiData.success || !apiData.data || !apiData.data.rows) {
+        throw new Error('Invalid API response format');
+      }
 
-  // Fetch multiple resistance data from server
-  const fetchResistanceData = async () => {
-    try {
-      setIsLoading(true);
-      console.log('Fetching AMR resistance data...');
+      const rows = apiData.data.rows;
       
-      // Build filter query parameters - filters already use correct column names (SEX, AGE_CAT, etc.)
-      const filterParams = new URLSearchParams();
-      activeFilters.forEach(filter => {
-        // Filter type is already the column name (SEX, AGE_CAT, etc.)
-        const filterValue = String(filter.value).trim();
-        if (filterValue && filterValue !== '') {
-          filterParams.append(filter.type, filterValue);
-        }
+      // Process resistance data from raw rows
+      const processedData = calculateResistanceData(rows);
+      setRealResistanceData(processedData);
+      
+      // Pre-populate filter value cache
+      const newFilterValueCache: Record<string, FilterValueOption[]> = {};
+      filterTypeOptions.forEach(option => {
+        newFilterValueCache[option.value] = extractUniqueValues(rows, option.value);
       });
+      setFilterValueCache(newFilterValueCache);
       
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d`;
-      const endpoints = [
-        { 
-          formula: 'A_BAUMANNII_CARBAPENEMS', 
-          url: `${baseUrl}/amr-abaumannii-carbapenems-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'E_COLI_3G_CEPHALOSPORINS', 
-          url: `${baseUrl}/amr-ecoli-3gc-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'E_COLI_CARBAPENEMS', 
-          url: `${baseUrl}/amr-ecoli-carbapenems-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'ENTEROCOCCI_VANCOMYCIN', 
-          url: `${baseUrl}/amr-enterococci-vancomycin-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'K_PNEUMONIAE_3G_CEPHALOSPORINS', 
-          url: `${baseUrl}/amr-kpneumoniae-3gc-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'K_PNEUMONIAE_AMINOGLYCOSIDES', 
-          url: `${baseUrl}/amr-kpneumoniae-aminoglycosides-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'K_PNEUMONIAE_CARBAPENEMS', 
-          url: `${baseUrl}/amr-kpneumoniae-carbapenems-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'K_PNEUMONIAE_FLUOROQUINOLONES', 
-          url: `${baseUrl}/amr-kpneumoniae-fluoroquinolones-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'P_AERUGINOSA_CARBAPENEMS', 
-          url: `${baseUrl}/amr-paeruginosa-carbapenems-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'S_AUREUS_METHICILLIN', 
-          url: `${baseUrl}/amr-saureus-methicillin-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'S_PNEUMONIAE_3G_CEPHALOSPORINS', 
-          url: `${baseUrl}/amr-spneumoniae-3gc-resistance?${filterParams.toString()}` 
-        },
-        { 
-          formula: 'S_PNEUMONIAE_PENICILLIN', 
-          url: `${baseUrl}/amr-spneumoniae-penicillin-resistance?${filterParams.toString()}` 
-        }
-      ];
-      
-      // Fetch all endpoints simultaneously
-      const fetchPromises = endpoints.map(async ({ formula, url }) => {
-        try {
-          console.log(`Fetching ${formula} from: ${url}`);
-          
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log(`${formula} resistance data received:`, data);
-            return { formula, data };
-          } else {
-            const errorText = await response.text();
-            console.error(`Failed to fetch ${formula} resistance data:`, errorText);
-            return { formula, data: null };
-          }
-        } catch (error) {
-          console.error(`Error fetching ${formula} resistance data:`, error);
-          return { formula, data: null };
-        }
-      });
-      
-      // Wait for all requests to complete
-      const results = await Promise.all(fetchPromises);
-      
-      // Organize results by formula
-      const resistanceDataMap: typeof realResistanceData = {};
-      results.forEach(({ formula, data }) => {
-        if (data) {
-          resistanceDataMap[formula as keyof typeof resistanceDataMap] = data;
-        }
-      });
-      
-      console.log('All resistance data fetched:', resistanceDataMap);
-      setRealResistanceData(resistanceDataMap);
-      
+      console.log('Resistance data calculated:', processedData);
+      console.log('Filter values cached:', newFilterValueCache);
+
     } catch (error) {
-      console.error('Error fetching resistance data:', error);
+      console.error('Error fetching AMR data from local API for Priority Bars:', error);
+      setRealResistanceData({});
+      setFilterValueCache({});
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch data when filters change
-  useEffect(() => {
-    fetchResistanceData();
-  }, [activeFilters]);
+  // Calculate resistance data from raw rows
+  const calculateResistanceData = (rows: any[]) => {
+    const resistanceResults: any = {};
 
-  // Filter helper functions - matching AMR_Human_Sparkline2
+    const calculateResistance = (organismPattern: string[], antibioticColumns: string[], resistanceBreakpoint: number = 15) => {
+      let resistantCount = 0;
+      let totalTested = 0;
+      
+      rows.forEach(row => {
+        const organism = row.ORGANISM;
+        if (!organism) return;
+        
+        const organismLower = organism.toLowerCase();
+        const matchesOrganism = organismPattern.some(pattern => organismLower.includes(pattern.toLowerCase()));
+        
+        if (matchesOrganism) {
+          let hasTestResult = false;
+          let isResistant = false;
+          
+          antibioticColumns.forEach(column => {
+            const zoneSize = row[column];
+            if (zoneSize !== undefined && zoneSize !== null && zoneSize !== '') {
+              hasTestResult = true;
+              const zoneNum = parseFloat(zoneSize);
+              if (!isNaN(zoneNum) && zoneNum <= resistanceBreakpoint) {
+                isResistant = true;
+              }
+            }
+          });
+          
+          if (hasTestResult) {
+            totalTested++;
+            if (isResistant) {
+              resistantCount++;
+            }
+          }
+        }
+      });
+      
+      const resistanceRate = totalTested > 0 ? Math.round((resistantCount / totalTested) * 100) : 0;
+      
+      return {
+        resistanceRate,
+        resistantCount,
+        totalTested
+      };
+    };
+
+    // A. baumannii vs Carbapenems
+    resistanceResults.A_BAUMANNII_CARBAPENEMS = calculateResistance(
+      ['aba', 'acinetobacter baumannii'],
+      ['IPM ND10', 'MEM ND10'],
+      19
+    );
+
+    // E. coli vs 3G Cephalosporins
+    resistanceResults.E_COLI_3G_CEPHALOSPORINS = calculateResistance(
+      ['eco', 'escherichia coli'],
+      ['CTX ND30', 'CAZ ND30', 'CRO ND30'],
+      22
+    );
+
+    // E. coli vs Carbapenems
+    resistanceResults.E_COLI_CARBAPENEMS = calculateResistance(
+      ['eco', 'escherichia coli'],
+      ['IPM ND10', 'MEM ND10'],
+      19
+    );
+
+    // Enterococci vs Vancomycin
+    resistanceResults.ENTEROCOCCI_VANCOMYCIN = calculateResistance(
+      ['efa', 'efm', 'enterococcus'],
+      ['VAN ND30'],
+      17
+    );
+
+    // K. pneumoniae vs 3G Cephalosporins
+    resistanceResults.K_PNEUMONIAE_3G_CEPHALOSPORINS = calculateResistance(
+      ['kpn', 'klebsiella pneumoniae'],
+      ['CTX ND30', 'CAZ ND30', 'CRO ND30'],
+      22
+    );
+
+    // K. pneumoniae vs Aminoglycosides
+    resistanceResults.K_PNEUMONIAE_AMINOGLYCOSIDES = calculateResistance(
+      ['kpn', 'klebsiella pneumoniae'],
+      ['GEN ND10', 'AMK ND30', 'TOB ND10'],
+      15
+    );
+
+    // K. pneumoniae vs Carbapenems
+    resistanceResults.K_PNEUMONIAE_CARBAPENEMS = calculateResistance(
+      ['kpn', 'klebsiella pneumoniae'],
+      ['IPM ND10', 'MEM ND10'],
+      19
+    );
+
+    // K. pneumoniae vs Fluoroquinolones
+    resistanceResults.K_PNEUMONIAE_FLUOROQUINOLONES = calculateResistance(
+      ['kpn', 'klebsiella pneumoniae'],
+      ['CIP ND5', 'OFX ND5', 'NOR ND10'],
+      15
+    );
+
+    // P. aeruginosa vs Carbapenems
+    resistanceResults.P_AERUGINOSA_CARBAPENEMS = calculateResistance(
+      ['pae', 'pseudomonas aeruginosa'],
+      ['IPM ND10', 'MEM ND10'],
+      19
+    );
+
+    // S. aureus vs Methicillin
+    resistanceResults.S_AUREUS_METHICILLIN = calculateResistance(
+      ['sau', 'staphylococcus aureus'],
+      ['OXA ND1'],
+      17
+    );
+
+    // S. pneumoniae vs 3G Cephalosporins
+    resistanceResults.S_PNEUMONIAE_3G_CEPHALOSPORINS = calculateResistance(
+      ['spn', 'streptococcus pneumoniae'],
+      ['CTX ND30', 'CRO ND30'],
+      22
+    );
+
+    // S. pneumoniae vs Penicillin
+    resistanceResults.S_PNEUMONIAE_PENICILLIN = calculateResistance(
+      ['spn', 'streptococcus pneumoniae'],
+      ['PEN ND10'],
+      15
+    );
+
+    return resistanceResults;
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  // Filter helper functions
   const filterHelpers = {
     addFilter: () => {
       if (filterType && filterValue) {
@@ -323,7 +339,6 @@ export function AMR_Human_Overview_PriorityBars() {
             label: `${typeOption.label}: ${valueOption.label}`
           };
           
-          // Avoid duplicate filters
           const isDuplicate = activeFilters.some(
             filter => filter.type === newFilter.type && filter.value === newFilter.value
           );
@@ -333,7 +348,6 @@ export function AMR_Human_Overview_PriorityBars() {
           }
         }
         
-        // Reset form
         setFilterType('');
         setFilterValue('');
       }
@@ -353,28 +367,24 @@ export function AMR_Human_Overview_PriorityBars() {
     return filterTypeOptions;
   };
 
-
+  // Get filter value options for current type
+  const getFilterValueOptionsForType = (type: string) => {
+    return filterValueCache[type] || [];
+  };
 
   // Get resistance profile data for chart
   const getResistanceProfileData = () => {
-    // Helper function to check if specific filter values are active
-    const hasActiveFilter = (type: string, value: string) => {
-      return activeFilters.some(f => f.type === type && f.value === value);
-    };
-
     const currentData = resistanceData.map(item => {
-      // Use real data if available for implemented formulas
       const realData = realResistanceData[item.formula as keyof typeof realResistanceData];
       if (realData) {
         return {
           ...item,
-          rate: realData.resistanceRate,
-          resistant: realData.resistantCount,
-          total: realData.totalTested
+          rate: realData.resistanceRate || 0,
+          resistant: realData.resistantCount || 0,
+          total: realData.totalTested || 0
         };
       }
       
-      // Return original data if no real data available
       return item;
     });
     
@@ -388,28 +398,16 @@ export function AMR_Human_Overview_PriorityBars() {
       color: getResistanceAlertColor(item.rate)
     }));
     
-    // Sort by resistance rate in descending order (highest resistance first)
     return chartData.sort((a, b) => b.rate - a.rate);
   };
 
   // Custom label component for low sample size indicator
   const LowSampleLabel = (props: any) => {
-    const { x, y, width, payload, value } = props;
+    const { x, y, width, payload } = props;
     
-    // Debug logging to see what data is available
-    if (payload) {
-      console.log('LowSampleLabel payload:', payload);
-      console.log('LowSampleLabel value:', value);
-    }
-    
-    // Show asterisk if total count is <= 30
-    // Check multiple possible locations for the total count
     const total = payload?.total || 
-                  payload?.payload?.total || 
-                  payload?.data?.total ||
-                  payload?.originalData?.total;
+                  payload?.payload?.total;
     
-    // Also check if we can calculate total from resistant/rate
     let calculatedTotal = null;
     if (!total && payload?.resistant && payload?.rate && payload.rate > 0) {
       calculatedTotal = Math.round(payload.resistant / (payload.rate / 100));
@@ -434,8 +432,45 @@ export function AMR_Human_Overview_PriorityBars() {
     return null;
   };
 
-  // Get currently displayed hospital filter
-  const hospitalFilter = activeFilters.find(f => f.type === 'hospital');
+  // Tooltip component
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    
+    const data = payload[0].payload;
+    const rate = data.rate;
+    const riskLevel = rate < 20 ? 'Low risk' : rate < 40 ? 'Moderate risk' : 'High risk';
+    const riskColor = getResistanceAlertColor(rate);
+    const totalTested = data.total || 0;
+    const resistant = data.resistant || Math.round((rate/100) * totalTested);
+    const isSmallSample = totalTested <= 30;
+    
+    return (
+      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg max-w-xs">
+        <p className="font-semibold text-gray-900 mb-1 italic">{formatOrganismName(data.organism)}</p>
+        <p className="text-sm text-gray-600 mb-2">{data.antibiotic}</p>
+        <p className="text-sm text-gray-900">
+          <span className="font-semibold" style={{ color: riskColor }}>{rate}%</span> resistance rate <span style={{ color: riskColor }}>({riskLevel})</span>
+        </p>
+        <p className="text-xs text-gray-600 mt-1">
+          {resistant} resistant / {totalTested} total tested
+        </p>
+        {isSmallSample && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <p className="text-xs text-orange-600 font-medium flex items-center gap-1">
+              <span className="text-orange-500 text-sm">⚠️</span>
+              N &lt; 30 - interpret with caution
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const chartData = getResistanceProfileData();
+  const cellColors = chartData.map(entry => {
+    const isSmallSample = entry.total && entry.total <= 30;
+    return isSmallSample ? entry.color + '99' : entry.color;
+  });
 
   return (
     <Card className="mx-[0px] my-[24px]">
@@ -492,7 +527,7 @@ export function AMR_Human_Overview_PriorityBars() {
           </div>
         )}
 
-        {/* Filter Controls - Horizontal Layout matching Sparkline2 */}
+        {/* Filter Controls */}
         <div className="mb-6 bg-gray-50 rounded-lg border px-[16px] py-[10px]">
           <div className="flex items-center gap-4">
             <h3 className="font-semibold text-gray-900 text-sm text-[13px]">Filter Resistance Data:</h3>
@@ -604,130 +639,81 @@ export function AMR_Human_Overview_PriorityBars() {
           </div>
         </div>
 
-        {/* Chart Area - Full Width */}
+        {/* Chart Area */}
         <div className="w-full">
           {/* Color-Coded Risk Level Legend */}
           <div className="flex items-center gap-8 mb-[10px]">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#16a34a' }}></div>
-                <span className="text-sm text-[11px]">Low Resistance Risk (&lt;20%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#eab308' }}></div>
-                <span className="text-sm text-[11px]">Moderate Resistance Risk (20-39%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#dc2626' }}></div>
-                <span className="text-sm text-[11px]">High Resistance Risk (&ge;40%)</span>
-              </div>
-
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#16a34a' }}></div>
+              <span className="text-sm text-[11px]">Low Resistance Risk (&lt;20%)</span>
             </div>
-
-            {/* Chart Container */}
-            <div id="resistance-chart-container" className="h-[350px]">
-              {isLoading && (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-gray-500">Loading resistance data...</div>
-                </div>
-              )}
-              {!isLoading && (() => {
-                // Memoize chart data to prevent recalculation on every render
-                const chartData = getResistanceProfileData();
-                
-                // Pre-calculate cell colors to avoid recalculation in render loop
-                const cellColors = chartData.map(entry => {
-                  const isSmallSample = entry.total && entry.total <= 30;
-                  return isSmallSample ? entry.color + '99' : entry.color;
-                });
-
-                // Optimized tooltip content function
-                const renderTooltip = ({ active, payload }) => {
-                  if (!active || !payload?.length) return null;
-                  
-                  const data = payload[0].payload;
-                  const rate = data.rate;
-                  const riskLevel = rate < 20 ? 'Low risk' : rate < 40 ? 'Moderate risk' : 'High risk';
-                  const riskColor = getResistanceAlertColor(rate);
-                  const totalTested = data.total || 600;
-                  const resistant = data.resistant || Math.round((rate/100) * totalTested);
-                  const isSmallSample = totalTested <= 30;
-                  
-                  return (
-                    <div className="bg-white p-3 border border-gray-300 rounded shadow-lg max-w-xs">
-                      <p className="font-semibold text-gray-900 mb-1 italic">{formatOrganismName(data.organism)}</p>
-                      <p className="text-sm text-gray-600 mb-2">{data.antibiotic}</p>
-                      <p className="text-sm text-gray-900">
-                        <span className="font-semibold" style={{ color: riskColor }}>{rate}%</span> resistance rate <span style={{ color: riskColor }}>({riskLevel})</span>
-                      </p>
-                      <p className="text-xs text-gray-600 mt-1">
-                        {resistant} resistant / {totalTested} total tested
-                      </p>
-                      {isSmallSample && (
-                        <div className="mt-2 pt-2 border-t border-gray-200">
-                          <p className="text-xs text-orange-600 font-medium flex items-center gap-1">
-                            <span className="text-orange-500 text-sm">⚠️</span>
-                            N &lt; 30 - interpret with caution
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                };
-
-                return (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={chartData}
-                      margin={{ top: 10, right: 10, left: 10, bottom: 70 }}
-                    >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                    <XAxis 
-                      dataKey="displayName" 
-                      angle={-30}
-                      textAnchor="end"
-                      height={10}
-                      interval={0}
-                      fontSize={10}
-                      tick={{ fontSize: 10, fill: '#374151' }}
-                      axisLine={{ stroke: '#d1d5db' }}
-                      tickLine={{ stroke: '#d1d5db' }}
-                    />
-                    <YAxis 
-                      label={{ 
-                        value: 'Resistance Rate (%)', 
-                        angle: -90, 
-                        position: 'insideLeft',
-                        style: { textAnchor: 'middle', fill: '#374151', fontSize: '12px' }
-                      }}
-                      domain={[0, 100]}
-                      ticks={[0, 20, 40, 60, 80, 100]}
-                      fontSize={10}
-                      tick={{ fill: '#374151' }}
-                      axisLine={{ stroke: '#d1d5db' }}
-                      tickLine={{ stroke: '#d1d5db' }}
-                    />
-                    <Tooltip content={renderTooltip} />
-                    <Bar 
-                      dataKey="rate" 
-                      radius={[2, 2, 0, 0]}
-                      stroke="none"
-                    >
-                      {cellColors.map((fillColor, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={fillColor}
-                        />
-                      ))}
-                      <LabelList content={LowSampleLabel} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                );
-              })()}
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#eab308' }}></div>
+              <span className="text-sm text-[11px]">Moderate Resistance Risk (20-39%)</span>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#dc2626' }}></div>
+              <span className="text-sm text-[11px]">High Resistance Risk (&ge;40%)</span>
+            </div>
+          </div>
 
+          {/* Chart Container */}
+          <div id="resistance-chart-container" className="h-[350px]">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-gray-500">Loading resistance data...</div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 10, right: 10, left: 10, bottom: 70 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  <XAxis 
+                    dataKey="displayName" 
+                    angle={-30}
+                    textAnchor="end"
+                    height={70}
+                    interval={0}
+                    fontSize={10}
+                    tick={{ fontSize: 10, fill: '#374151' }}
+                    axisLine={{ stroke: '#d1d5db' }}
+                    tickLine={{ stroke: '#d1d5db' }}
+                  />
+                  <YAxis 
+                    label={{ 
+                      value: 'Resistance Rate (%)', 
+                      angle: -90, 
+                      position: 'insideLeft',
+                      style: { textAnchor: 'middle', fill: '#374151', fontSize: '12px' }
+                    }}
+                    domain={[0, 100]}
+                    ticks={[0, 20, 40, 60, 80, 100]}
+                    fontSize={10}
+                    tick={{ fill: '#374151' }}
+                    axisLine={{ stroke: '#d1d5db' }}
+                    tickLine={{ stroke: '#d1d5db' }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar 
+                    dataKey="rate" 
+                    radius={[2, 2, 0, 0]}
+                    stroke="none"
+                  >
+                    {cellColors.map((fillColor, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={fillColor}
+                      />
+                    ))}
+                    <LabelList content={LowSampleLabel} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
-
       </CardContent>
     </Card>
   );

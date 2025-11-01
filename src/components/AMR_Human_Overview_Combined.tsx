@@ -4,8 +4,6 @@ import { AMR_Human_Overview_IsolateSUM } from './AMR_Human_Overview_IsolateSUM';
 import { AMR_Human_Overview_PairSUM } from './AMR_Human_Overview_PairSUM';
 import { AMR_Human_Overview_MonitorSUM } from './AMR_Human_Overview_MonitorSUM';
 import { AMR_Human_Overview_MonitorSUM_NoLimit } from './AMR_Human_Overview_MonitorSUM_NoLimit';
-import { makeServerRequest } from '../utils/supabase/client';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { shouldHideESBLPair } from '../utils/esblFilterUtils';
 
 interface OrganismData {
@@ -27,10 +25,74 @@ interface SentinelPhenotype {
   percentage: number;
 }
 
-interface AntibioticMapping {
-  column_name: string;
-  simple_name: string;
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
 }
+
+// Antibiotic mappings for display names
+const ANTIBIOTIC_MAPPINGS: { [key: string]: string } = {
+  'AMP ND10': 'Ampicillin',
+  'AMC ND20': 'Amoxicillin-clavulanate',
+  'CTX ND30': 'Cefotaxime',
+  'CAZ ND30': 'Ceftazidime',
+  'CRO ND30': 'Ceftriaxone',
+  'IPM ND10': 'Imipenem',
+  'MEM ND10': 'Meropenem',
+  'CIP ND5': 'Ciprofloxacin',
+  'GEN ND10': 'Gentamicin',
+  'AMK ND30': 'Amikacin',
+  'TCY ND30': 'Tetracycline',
+  'SXT ND1 2': 'Trimethoprim-sulfamethoxazole',
+  'OXA ND1': 'Oxacillin',
+  'VAN ND30': 'Vancomycin',
+  'ERY ND15': 'Erythromycin',
+  'CHL ND30': 'Chloramphenicol',
+  'NIT ND300': 'Nitrofurantoin',
+  'TOB ND10': 'Tobramycin',
+  'CLI ND2': 'Clindamycin',
+  'FOX ND30': 'Cefoxitin',
+  'OFX ND5': 'Ofloxacin',
+  'TCC ND75': 'Ticarcillin-clavulanate',
+  'CXM ND30': 'Cefuroxime',
+  'NOR ND10': 'Norfloxacin',
+  'ATM ND30': 'Aztreonam',
+  'RIF ND5': 'Rifampin',
+  'DOX ND30': 'Doxycycline',
+  'MNO ND30': 'Minocycline',
+  'TEC ND30': 'Teicoplanin',
+  'FEP ND30': 'Cefepime',
+  'CTC ND30': 'Chlortetracycline',
+  'CCV ND30': 'Cefaclor',
+  'TIO ND30': 'Ceftiofur',
+  'NAL ND30': 'Nalidixic acid',
+  'TZP ND100': 'Piperacillin-tazobactam',
+  'GEH ND120': 'Geopen'
+};
+
+// Organism mappings for display names
+const ORGANISM_MAPPINGS: { [key: string]: string } = {
+  'eco': 'E. coli',
+  'kpn': 'K. pneumoniae',
+  'pae': 'P. aeruginosa',
+  'aba': 'A. baumannii',
+  'sau': 'S. aureus',
+  'efm': 'E. faecium',
+  'efa': 'E. faecalis',
+  'spn': 'S. pneumoniae',
+  'sep': 'S. epidermidis',
+  'sag': 'S. agalactiae',
+  'sma': 'S. marcescens',
+  'ecl': 'E. cloacae',
+  'efa': 'E. faecalis',
+  'efm': 'E. faecium'
+};
 
 export function AMR_Human_Overview_Combined() {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -39,267 +101,289 @@ export function AMR_Human_Overview_Combined() {
   const [resistancePairs, setResistancePairs] = useState<ResistancePair[]>([]);
   const [sentinelPhenotypes, setSentinelPhenotypes] = useState<SentinelPhenotype[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [antibioticMappings, setAntibioticMappings] = useState<{ [key: string]: string }>({});
-  const [organismMappings, setOrganismMappings] = useState<{ [key: string]: string }>({});
 
-  // Helper function to get organism name from code using fetched mappings
+  // Helper function to get organism name from code
   const getOrganismName = (code: string): string => {
     if (!code) return '';
-    // Use fetched mappings from vw_amr_hh_organisms, fallback to code if not found
-    return organismMappings[code] || organismMappings[code.toUpperCase()] || organismMappings[code.toLowerCase()] || code;
+    return ORGANISM_MAPPINGS[code.toLowerCase()] || code.toUpperCase();
   };
 
   // Helper function to get antibiotic simple name from column name
   const getAntibioticName = (columnName: string): string => {
-    return antibioticMappings[columnName] || columnName;
+    return ANTIBIOTIC_MAPPINGS[columnName] || columnName;
   };
 
-  // Fetch all data from AMR_HH table (same endpoints as expanded view)
+  // Helper function to extract top organisms from raw data
+  const extractTopOrganisms = (rows: any[]): OrganismData[] => {
+    const organismCounts: { [key: string]: number } = {};
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+        const organismKey = organism.toLowerCase();
+        organismCounts[organismKey] = (organismCounts[organismKey] || 0) + 1;
+      }
+    });
+    
+    return Object.entries(organismCounts)
+      .map(([organism, count]) => ({ 
+        organism: getOrganismName(organism),
+        count 
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  };
+
+  // Helper function to calculate resistance rates
+  const calculateResistancePairs = (rows: any[]): ResistancePair[] => {
+    const resistanceData: { [key: string]: { resistant: number; total: number } } = {};
+    
+    // Define antibiotic columns to check
+    const antibioticColumns = ['AMP ND10', 'AMC ND20', 'CTX ND30', 'CAZ ND30', 'CRO ND30', 'IPM ND10', 'MEM ND10', 'CIP ND5', 'GEN ND10', 'AMK ND30'];
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (!organism || organism.toLowerCase() === 'xxx') return;
+      
+      antibioticColumns.forEach(antibiotic => {
+        const organismCode = organism.toLowerCase();
+        const key = `${organismCode}-${antibiotic}`;
+        
+        // Skip ESBL-excluded pairs
+        if (shouldHideESBLPair(organismCode, antibiotic)) {
+          return;
+        }
+        
+        const zoneSize = row[antibiotic];
+        
+        if (zoneSize !== undefined && zoneSize !== null && zoneSize !== '') {
+          // Initialize if not exists
+          if (!resistanceData[key]) {
+            resistanceData[key] = { resistant: 0, total: 0 };
+          }
+          
+          resistanceData[key].total += 1;
+          
+          // Simple resistance determination based on zone size
+          const zoneNum = parseFloat(zoneSize);
+          if (!isNaN(zoneNum)) {
+            // Zone size <= 15 considered resistant (adjust as needed)
+            if (zoneNum <= 15) {
+              resistanceData[key].resistant += 1;
+            }
+          }
+        }
+      });
+    });
+    
+    // Convert to ResistancePair array and calculate percentages
+    const allPairs: ResistancePair[] = Object.entries(resistanceData)
+      .map(([key, data]) => {
+        const [organismCode, antibiotic] = key.split('-');
+        
+        const percentage = data.total > 0 ? Math.round((data.resistant / data.total) * 100) : 0;
+        
+        return {
+          pair: `${getOrganismName(organismCode)} - ${getAntibioticName(antibiotic)}`,
+          resistant: data.resistant,
+          total: data.total,
+          percentage: percentage
+        };
+      })
+      .filter(pair => pair.total >= 30) // Only include pairs with n≥30
+      .sort((a, b) => {
+        if (a.percentage !== b.percentage) {
+          return b.percentage - a.percentage; // Higher percentage first
+        }
+        return b.total - a.total; // Higher n wins for ties
+      })
+      .slice(0, 5);
+    
+    return allPairs;
+  };
+
+  // Helper function to calculate sentinel phenotypes
+  const calculateSentinelPhenotypes = (rows: any[]): SentinelPhenotype[] => {
+    const patterns: SentinelPhenotype[] = [];
+    
+    // MRSA pattern (S. aureus resistant to oxacillin)
+    const mrsaData = { resistant: 0, total: 0 };
+    // VRE pattern (Enterococcus resistant to vancomycin)
+    const vreData = { resistant: 0, total: 0 };
+    // ESBL pattern (E. coli, K. pneumoniae resistant to 3rd gen cephalosporins)
+    const esblData = { resistant: 0, total: 0 };
+    // Carbapenem-resistant Enterobacteriaceae
+    const creData = { resistant: 0, total: 0 };
+    // K. pneumoniae vs 3rd gen cephalosporins
+    const kpn3gcData = { resistant: 0, total: 0 };
+    
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (!organism) return;
+      
+      const organismLower = organism.toLowerCase();
+      
+      // MRSA detection
+      if (organismLower.includes('sau')) {
+        mrsaData.total++;
+        const oxaZone = row['OXA ND1'];
+        if (oxaZone && parseFloat(oxaZone) <= 17) { // MRSA breakpoint
+          mrsaData.resistant++;
+        }
+      }
+      
+      // VRE detection
+      if (organismLower.includes('efa') || organismLower.includes('efm')) {
+        vreData.total++;
+        const vanZone = row['VAN ND30'];
+        if (vanZone && parseFloat(vanZone) <= 17) { // VRE breakpoint
+          vreData.resistant++;
+        }
+      }
+      
+      // ESBL detection (E. coli, K. pneumoniae with resistance to CTX, CAZ, or CRO)
+      if (organismLower === 'eco' || organismLower === 'kpn') {
+        esblData.total++;
+        const ctxZone = row['CTX ND30'];
+        const cazZone = row['CAZ ND30'];
+        const croZone = row['CRO ND30'];
+        
+        if ((ctxZone && parseFloat(ctxZone) <= 22) || 
+            (cazZone && parseFloat(cazZone) <= 22) || 
+            (croZone && parseFloat(croZone) <= 22)) {
+          esblData.resistant++;
+        }
+      }
+      
+      // CRE detection (Enterobacteriaceae resistant to carbapenems)
+      if (['eco', 'kpn', 'pae', 'aba'].includes(organismLower)) {
+        creData.total++;
+        const ipmZone = row['IPM ND10'];
+        const memZone = row['MEM ND10'];
+        
+        if ((ipmZone && parseFloat(ipmZone) <= 19) || 
+            (memZone && parseFloat(memZone) <= 19)) {
+          creData.resistant++;
+        }
+      }
+      
+      // K. pneumoniae vs 3rd gen cephalosporins
+      if (organismLower === 'kpn') {
+        kpn3gcData.total++;
+        const ctxZone = row['CTX ND30'];
+        const cazZone = row['CAZ ND30'];
+        const croZone = row['CRO ND30'];
+        
+        if ((ctxZone && parseFloat(ctxZone) <= 22) || 
+            (cazZone && parseFloat(cazZone) <= 22) || 
+            (croZone && parseFloat(croZone) <= 22)) {
+          kpn3gcData.resistant++;
+        }
+      }
+    });
+    
+    // Add patterns with sufficient data
+    if (mrsaData.total >= 10) {
+      patterns.push({
+        pattern: 'MRSA',
+        resistant: mrsaData.resistant,
+        total: mrsaData.total,
+        percentage: Math.round((mrsaData.resistant / mrsaData.total) * 100)
+      });
+    }
+    
+    if (vreData.total >= 10) {
+      patterns.push({
+        pattern: 'VRE',
+        resistant: vreData.resistant,
+        total: vreData.total,
+        percentage: Math.round((vreData.resistant / vreData.total) * 100)
+      });
+    }
+    
+    if (esblData.total >= 10) {
+      patterns.push({
+        pattern: 'ESBL E. coli/K. pneumoniae',
+        resistant: esblData.resistant,
+        total: esblData.total,
+        percentage: Math.round((esblData.resistant / esblData.total) * 100)
+      });
+    }
+    
+    if (creData.total >= 10) {
+      patterns.push({
+        pattern: 'CRE',
+        resistant: creData.resistant,
+        total: creData.total,
+        percentage: Math.round((creData.resistant / creData.total) * 100)
+      });
+    }
+    
+    if (kpn3gcData.total >= 10) {
+      patterns.push({
+        pattern: 'K. pneumoniae vs 3GCS',
+        resistant: kpn3gcData.resistant,
+        total: kpn3gcData.total,
+        percentage: Math.round((kpn3gcData.resistant / kpn3gcData.total) * 100)
+      });
+    }
+    
+    // Sort by percentage descending and take top 5
+    return patterns.sort((a, b) => b.percentage - a.percentage).slice(0, 5);
+  };
+
+  // Fetch all data from local API endpoint
   useEffect(() => {
     const fetchAllData = async () => {
       try {
         setIsLoading(true);
         
-        // 0. First fetch antibiotic column mappings
-        console.log('Fetching antibiotic column mappings...');
-        const mappingsController = new AbortController();
-        const mappingsTimeoutId = setTimeout(() => {
-          console.warn('Antibiotic mappings request timeout after 30 seconds');
-          mappingsController.abort();
-        }, 30000);
-
-        const mappingsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/antibiotic-mappings`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            },
-            signal: mappingsController.signal
+        console.log('Fetching all AMR data from local API for Combined Overview...');
+        const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
-        );
+        });
         
-        clearTimeout(mappingsTimeoutId);
-
-        let currentMappings: { [key: string]: string } = {};
-        if (mappingsResponse.ok) {
-          const mappingsData = await mappingsResponse.json();
-          console.log('Antibiotic mappings response:', mappingsData);
-          
-          if (mappingsData.success && mappingsData.mappings) {
-            // Convert array to object for faster lookups
-            mappingsData.mappings.forEach((mapping: AntibioticMapping) => {
-              currentMappings[mapping.column_name] = mapping.simple_name;
-            });
-            
-            setAntibioticMappings(currentMappings);
-            console.log('Antibiotic mappings loaded for this session:', currentMappings);
-          } else {
-            console.error('Failed to get antibiotic mappings:', mappingsData.message);
-          }
-        } else {
-          console.error('Failed to fetch antibiotic mappings:', mappingsResponse.statusText);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        // 0b. Fetch organism name mappings from vw_amr_hh_organisms
-        console.log('Fetching organism name mappings...');
-        let currentOrganismMappings: { [key: string]: string } = {};
-        try {
-          const organismMappingsResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mappings`,
-            {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json'
-              }
-            }
-          );
-          
-          if (organismMappingsResponse.ok) {
-            const organismData = await organismMappingsResponse.json();
-            if (organismData.success && organismData.mappings) {
-              currentOrganismMappings = organismData.mappings;
-              setOrganismMappings(currentOrganismMappings);
-              console.log(`Loaded ${organismData.totalMappings} organism name mappings from vw_amr_hh_organisms`);
-              console.log('Organism mappings object:', currentOrganismMappings);
-              console.log('Sample mapping - eco:', currentOrganismMappings['eco'], currentOrganismMappings['ECO'], currentOrganismMappings['E. coli']);
-            } else {
-              console.error('Failed to parse organism mappings:', organismData);
-            }
-          } else {
-            console.error('Failed to fetch organism mappings:', organismMappingsResponse.statusText);
-          }
-        } catch (error) {
-          console.error('Error fetching organism mappings:', error);
-        }
-        
-        // 1. Fetch top organisms by frequency
-        const organismsResponse = await makeServerRequest('/amr-hh-top-organisms');
-        if (organismsResponse.success && organismsResponse.topOrganisms) {
-          setTopOrganisms(organismsResponse.topOrganisms);
-          console.log('Top organisms from AMR_HH:', organismsResponse.topOrganisms);
-        } else {
-          console.error('Failed to fetch top organisms:', organismsResponse.error || 'Invalid response format');
-          setTopOrganisms([]);
+        const apiData: ApiResponse = await response.json();
+        console.log('Full API response received for Combined Overview:', apiData);
+
+        if (!apiData.success || !apiData.data || !apiData.data.rows) {
+          throw new Error('Invalid API response format');
         }
 
-        // 2. Fetch total isolates count from same endpoint as SummaryCards for consistency
-        const isolatesResponse = await makeServerRequest('/amr-hh-isolates-total');
-        if (isolatesResponse.success && typeof isolatesResponse.total === 'number') {
-          setTotalIsolates(isolatesResponse.total);
-          console.log('Total isolates from AMR_HH (consistent with SummaryCards):', isolatesResponse.total);
-        } else {
-          console.error('Failed to fetch total isolates:', isolatesResponse.error || 'Invalid response format');
-          setTotalIsolates(0);
-        }
+        const rows = apiData.data.rows;
+        const totalRows = apiData.data.totalRows;
 
-        // 3. Fetch resistance pairs from heatmap endpoint (same as PairSUM component)
-        try {
-          const url = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-heatmap`;
-          const response = await fetch(url, {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (response.ok) {
-            const heatmapData = await response.json();
-            console.log('Heatmap data received for resistance pairs:', heatmapData);
-            
-            // Process the heatmap data to find top resistance pairs with n≥30
-            const allPairs: ResistancePair[] = [];
-            
-            heatmapData.organisms?.forEach((organism: string) => {
-              heatmapData.antibiotics?.forEach((antibiotic: string) => {
-                // Skip ESBL-excluded pairs (β-lactams for ESBL organisms)
-                if (shouldHideESBLPair(organism, antibiotic)) {
-                  console.log(`ESBL Filter (Combined): Excluding pair ${organism} - ${antibiotic}`);
-                  return;
-                }
-                
-                const percentage = heatmapData.heatmapData[organism]?.[antibiotic];
-                const counts = heatmapData.heatmapCounts[organism]?.[antibiotic];
-                
-                // Only include pairs with valid percentage data and n≥30
-                if (percentage !== undefined && percentage !== -1 && counts && counts.total >= 30) {
-                  // Use the mappings fetched in this session
-                  const antibioticDisplayName = currentMappings[antibiotic] || antibiotic;
-                  const organismDisplayName = currentOrganismMappings[organism] || currentOrganismMappings[organism.toUpperCase()] || currentOrganismMappings[organism.toLowerCase()] || organism;
-                  console.log(`Mapping ${organism} -> ${organismDisplayName}, ${antibiotic} -> ${antibioticDisplayName}`);
-                  
-                  allPairs.push({
-                    pair: `${organismDisplayName} - ${antibioticDisplayName}`,
-                    resistant: counts.resistant,
-                    total: counts.total,
-                    percentage: percentage
-                  });
-                }
-              });
-            });
-            
-            // Sort by percentage descending, then by total descending for ties
-            allPairs.sort((a, b) => {
-              if (a.percentage !== b.percentage) {
-                return b.percentage - a.percentage; // Higher percentage first
-              }
-              return b.total - a.total; // Higher n wins for ties
-            });
-            
-            // Take top 5 pairs for collapsed view
-            const topPairs = allPairs.slice(0, 5);
-            console.log(`Found ${topPairs.length} top resistance pairs with n≥30:`, topPairs);
-            setResistancePairs(topPairs);
-          } else {
-            console.error('Failed to fetch heatmap data:', response.statusText);
-            setResistancePairs([]);
-          }
-        } catch (error) {
-          console.error('Error fetching resistance pairs:', error);
-          setResistancePairs([]);
-        }
+        console.log(`Processing ${rows.length} rows for Combined Overview calculations`);
 
-        // 4. Fetch sentinel phenotypes (same as MonitorSUM_NoLimit component)
-        try {
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-resistance-patterns-no-limit`,
-            {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json'
-              }
-            }
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Sentinel phenotypes response (no limit):', data);
-            
-            if (data.success && data.patterns) {
-              let allPatterns = [...data.patterns];
-              
-              // 5. Fetch K. pneumoniae 3rd-gen cephalosporin resistance
-              try {
-                const kpnResponse = await fetch(
-                  `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-kpneumoniae-3gc-resistance`,
-                  {
-                    method: 'GET',
-                    headers: {
-                      'Authorization': `Bearer ${publicAnonKey}`,
-                      'Content-Type': 'application/json'
-                    }
-                  }
-                );
-                
-                if (kpnResponse.ok) {
-                  const kpnData = await kpnResponse.json();
-                  console.log('K. pneumoniae 3GCS resistance response:', kpnData);
-                  
-                  if (typeof kpnData.resistanceRate === 'number') {
-                    // Add K. pneumoniae 3GCS to the patterns array
-                    allPatterns.push({
-                      pattern: 'K. pneumoniae vs 3GCS',
-                      resistant: kpnData.resistantCount || 0,
-                      total: kpnData.totalTested || 0,
-                      percentage: kpnData.resistanceRate
-                    });
-                    console.log('Added K. pneumoniae 3GCS data to sentinel phenotypes:', {
-                      resistant: kpnData.resistantCount,
-                      total: kpnData.totalTested,
-                      percentage: kpnData.resistanceRate
-                    });
-                  } else {
-                    console.warn('K. pneumoniae 3GCS data not available or invalid format:', kpnData);
-                  }
-                } else {
-                  console.warn('Failed to fetch K. pneumoniae 3GCS resistance:', kpnResponse.statusText);
-                }
-              } catch (kpnError) {
-                console.warn('Error fetching K. pneumoniae 3GCS resistance:', kpnError);
-              }
-              
-              // Sort all patterns by percentage (descending) and take top 5
-              allPatterns.sort((a, b) => b.percentage - a.percentage);
-              const topPatterns = allPatterns.slice(0, 5);
-              console.log('Setting sentinel phenotypes (collapsed view) with K. pneumoniae 3GCS:', topPatterns);
-              setSentinelPhenotypes(topPatterns);
-            } else {
-              console.error('Failed to get sentinel phenotypes:', data.message);
-              setSentinelPhenotypes([]);
-            }
-          } else {
-            console.error('Failed to fetch sentinel phenotypes:', response.statusText);
-            setSentinelPhenotypes([]);
-          }
-        } catch (error) {
-          console.error('Error fetching sentinel phenotypes:', error);
-          setSentinelPhenotypes([]);
-        }
+        // 1. Extract and set top organisms
+        const organisms = extractTopOrganisms(rows);
+        setTopOrganisms(organisms);
+        console.log('Top organisms calculated:', organisms);
+
+        // 2. Set total isolates (using total rows as approximation)
+        setTotalIsolates(totalRows);
+        console.log('Total isolates:', totalRows);
+
+        // 3. Calculate resistance pairs
+        const resistancePairsData = calculateResistancePairs(rows);
+        setResistancePairs(resistancePairsData);
+        console.log('Resistance pairs calculated:', resistancePairsData);
+
+        // 4. Calculate sentinel phenotypes
+        const sentinelData = calculateSentinelPhenotypes(rows);
+        setSentinelPhenotypes(sentinelData);
+        console.log('Sentinel phenotypes calculated:', sentinelData);
 
       } catch (error) {
-        console.error('Error fetching AMR_HH data:', error);
+        console.error('Error fetching AMR data from local API for Combined Overview:', error);
+        // Set fallback empty states
         setTopOrganisms([]);
         setTotalIsolates(0);
         setResistancePairs([]);
@@ -346,21 +430,19 @@ export function AMR_Human_Overview_Combined() {
                   {[1, 2, 3, 4, 5].map((index) => (
                     <div key={index} className="flex justify-between items-center">
                       <span className="text-xs text-blue-700">Loading...</span>
-                      <span className="text-xs font-medium text-blue-800">--%</span>
+                      <span className="text-xs font-medium text-blue-800">--</span>
                     </div>
                   ))}
                 </>
               ) : topOrganisms.length > 0 ? (
                 // Data loaded successfully
                 <>
-                  {topOrganisms.slice(0, 5).map((item, index) => {
-                    return (
-                      <div key={item.organismCode || item.organism} className="flex justify-between items-center">
-                        <span className="text-xs text-blue-700">{item.organism}</span>
-                        <span className="text-xs font-medium text-blue-800">{item.count.toLocaleString()}</span>
-                      </div>
-                    );
-                  })}
+                  {topOrganisms.map((item, index) => (
+                    <div key={index} className="flex justify-between items-center">
+                      <span className="text-xs text-blue-700">{item.organism}</span>
+                      <span className="text-xs font-medium text-blue-800">{item.count.toLocaleString()}</span>
+                    </div>
+                  ))}
                 </>
               ) : (
                 // No data state
@@ -389,10 +471,14 @@ export function AMR_Human_Overview_Combined() {
               ) : resistancePairs.length > 0 ? (
                 // Data loaded successfully
                 <>
-                  {resistancePairs.slice(0, 5).map((item, index) => (
+                  {resistancePairs.map((item, index) => (
                     <div key={index} className="flex justify-between items-center">
-                      <span className="text-xs text-red-700">{item.pair}</span>
-                      <span className="text-xs font-medium text-red-800">{item.percentage}%</span>
+                      <span className="text-xs text-red-700 truncate" title={item.pair}>
+                        {item.pair.length > 25 ? `${item.pair.substring(0, 25)}...` : item.pair}
+                      </span>
+                      <span className="text-xs font-medium text-red-800 whitespace-nowrap">
+                        {item.percentage}%
+                      </span>
                     </div>
                   ))}
                 </>
@@ -423,10 +509,14 @@ export function AMR_Human_Overview_Combined() {
               ) : sentinelPhenotypes.length > 0 ? (
                 // Data loaded successfully
                 <>
-                  {sentinelPhenotypes.slice(0, 5).map((item, index) => (
+                  {sentinelPhenotypes.map((item, index) => (
                     <div key={index} className="flex justify-between items-center">
-                      <span className="text-xs text-yellow-700">{item.pattern}</span>
-                      <span className="text-xs font-medium text-yellow-800">{item.percentage}%</span>
+                      <span className="text-xs text-yellow-700 truncate" title={item.pattern}>
+                        {item.pattern.length > 25 ? `${item.pattern.substring(0, 25)}...` : item.pattern}
+                      </span>
+                      <span className="text-xs font-medium text-yellow-800 whitespace-nowrap">
+                        {item.percentage}%
+                      </span>
                     </div>
                   ))}
                 </>

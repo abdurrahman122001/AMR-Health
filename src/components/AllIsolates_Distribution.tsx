@@ -4,10 +4,9 @@ import { Card, CardContent, CardHeader } from './ui/card';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
-import { Table as TableIcon, Download, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { Table as TableIcon, Download, ChevronDown, Check } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { cn } from './ui/utils';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface OrganismData {
   organism: string;
@@ -26,6 +25,17 @@ interface AllIsolatesDistributionProps {
   activeFilters?: Array<{ column: string; value: string; label: string }>;
 }
 
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
 export function AllIsolatesDistribution({ activeFilters: externalActiveFilters = [] }: AllIsolatesDistributionProps) {
   const [showTable, setShowTable] = useState(false);
   const [data, setData] = useState<AllIsolatesResponse | null>(null);
@@ -35,7 +45,6 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
   // Demographic selection state
   const [selectedDemographic, setSelectedDemographic] = useState('ORGANISM');
   const [selectedDemographicOpen, setSelectedDemographicOpen] = useState(false);
-  const [organismMappings, setOrganismMappings] = useState<Record<string, string>>({});
 
   // Filter state management
   const [filterType, setFilterType] = useState<string>('');
@@ -43,7 +52,6 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
   const [filterTypeOpen, setFilterTypeOpen] = useState(false);
   const [filterValueOpen, setFilterValueOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Array<{type: string, value: string, label: string}>>([]);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
 
   const demographicOptions = [
     { value: 'SEX', label: 'Sex' },
@@ -57,114 +65,137 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
     { value: 'ORGANISM', label: 'Organism' }
   ];
 
-  // Fetch filter options from server
-  const fetchFilterOptions = async (column: string) => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+  // Color palette for charts
+  const colorPalette = [
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+    '#06b6d4', '#84cc16', '#f97316', '#6366f1', '#ec4899',
+    '#14b8a6', '#84cc16', '#f43f5e', '#8b5cf6', '#06b6d4',
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'
+  ];
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.values) {
-          return data.values.map((option: any) => ({
-            value: String(option),
-            label: String(option)
-          }));
-        }
+  // Helper function to extract unique values from raw data
+  const extractUniqueValues = (rows: any[], columnName: string): Array<{value: string, label: string}> => {
+    const uniqueValues = new Set();
+    
+    rows.forEach(row => {
+      const value = row[columnName];
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(value.toString().trim());
       }
-    } catch (error) {
-      console.error(`Error fetching ${column} options:`, error);
-    }
-    return [];
+    });
+    
+    const sortedValues = Array.from(uniqueValues).sort((a: any, b: any) => 
+      a.toString().localeCompare(b.toString())
+    );
+    
+    return sortedValues.map((value: any) => ({
+      value: value,
+      label: value
+    }));
   };
 
-  // Fetch organism mappings from backend
-  const fetchOrganismMappings = async () => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mappings`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+  // Calculate distribution data from raw rows
+  const calculateDistributionData = (rows: any[], groupBy: string): AllIsolatesResponse => {
+    const counts: { [key: string]: number } = {};
+    let totalIsolates = 0;
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.mappings) {
-          setOrganismMappings(result.mappings);
-          console.log('Organism mappings loaded:', Object.keys(result.mappings).length);
-        }
+    // Count isolates by the selected demographic
+    rows.forEach(row => {
+      const category = row[groupBy];
+      if (category && category.toString().trim() !== '') {
+        const categoryKey = category.toString().trim();
+        counts[categoryKey] = (counts[categoryKey] || 0) + 1;
+        totalIsolates++;
       }
-    } catch (error) {
-      console.error('Error fetching organism mappings:', error);
-    }
-  };
+    });
 
-  // Load filter options and organism mappings on mount
-  useEffect(() => {
-    const loadFilterOptions = async () => {
-      const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+    // Convert to array and sort by count descending
+    const sortedCategories = Object.entries(counts)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
 
-      const columnLabels: Record<string, string> = {
-        'SEX': 'Sex',
-        'AGE_CAT': 'Age Category',
-        'PAT_TYPE': 'Patient Type',
-        'INSTITUTION': 'Institution',
-        'DEPARTMENT': 'Department',
-        'WARD_TYPE': 'Ward Type',
-        'YEAR_SPEC': 'Year Specimen',
-        'X_REGION': 'Region'
-      };
+    // Calculate percentages and assign colors
+    const organisms = sortedCategories.map((item, index) => ({
+      organism: item.category,
+      organismName: item.category,
+      count: item.count,
+      percentage: totalIsolates > 0 ? (item.count / totalIsolates) * 100 : 0,
+      color: colorPalette[index % colorPalette.length]
+    }));
 
-      for (const column of amrColumns) {
-        const options = await fetchFilterOptions(column);
-        if (options.length > 0) {
-          newFilterOptions[column.toLowerCase()] = options;
-        }
-      }
-
-      setFilterOptions(newFilterOptions);
+    return {
+      totalIsolates,
+      organisms
     };
+  };
 
-    loadFilterOptions();
-    fetchOrganismMappings();
-  }, []);
+  // Fetch all data from local API endpoint
+  const fetchAllData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Fetching all AMR data from local API for Isolates Distribution...');
+      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const apiData: ApiResponse = await response.json();
+      console.log('Full API response received for Isolates Distribution:', apiData);
 
-  // Combined filter configs using dynamic options
+      if (!apiData.success || !apiData.data || !apiData.data.rows) {
+        throw new Error('Invalid API response format');
+      }
+
+      const rows = apiData.data.rows;
+      
+      // Process distribution data from raw rows
+      const processedData = calculateDistributionData(rows, selectedDemographic);
+      setData(processedData);
+      
+      console.log('Distribution data calculated:', processedData);
+
+    } catch (error) {
+      console.error('Error fetching AMR data from local API for Isolates Distribution:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch data');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Filter configs using dynamic options from API data
   const filterConfigs = useMemo(() => {
     const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
 
     const configMapping: Record<string, string> = {
-      'sex': 'Sex',
-      'age_cat': 'Age Category',
-      'pat_type': 'Patient Type',
-      'institution': 'Institution',
-      'department': 'Department',
-      'ward_type': 'Ward Type',
-      'year_spec': 'Year Specimen',
-      'x_region': 'Region'
+      'SEX': 'Sex',
+      'AGE_CAT': 'Age Category',
+      'PAT_TYPE': 'Patient Type',
+      'INSTITUTION': 'Institution',
+      'DEPARTMENT': 'Department',
+      'WARD_TYPE': 'Ward Type',
+      'YEAR_SPEC': 'Year Specimen',
+      'X_REGION': 'Region'
     };
 
+    // This will be populated when we have data
     Object.entries(configMapping).forEach(([key, label]) => {
-      configs[key] = {
+      configs[key.toLowerCase()] = {
         label,
-        options: filterOptions[key] || []
+        options: [] // Will be populated when data is available
       };
     });
 
     return configs;
-  }, [filterOptions]);
+  }, []);
 
   // Filter helpers
   const filterHelpers = {
@@ -213,85 +244,32 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
     return config?.options || [];
   };
 
-  // Fetch all isolates by demographic data
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('Fetching all isolates distribution by:', selectedDemographic);
-      
-      // Build query parameters from active filters
-      const params = new URLSearchParams({
-        groupBy: selectedDemographic
-      });
-      
-      activeFilters.forEach(filter => {
-        // Map filter types to AMR_HH column names
-        const columnMapping: Record<string, string> = {
-          'sex': 'SEX',
-          'age_cat': 'AGE_CAT',
-          'pat_type': 'PAT_TYPE',
-          'institution': 'INSTITUTION',
-          'department': 'DEPARTMENT',
-          'ward_type': 'WARD_TYPE',
-          'year_spec': 'YEAR_SPEC',
-          'x_region': 'X_REGION'
-        };
-        
-        const columnName = columnMapping[filter.type];
-        if (columnName) {
-          const filterValue = String(filter.value).trim();
-          if (filterValue && filterValue !== '') {
-            params.append(columnName, filterValue);
-          }
-        }
-      });
-
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/all-isolates-distribution?${params.toString()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('All isolates distribution response:', result);
-
-      if (result.success && result.data) {
-        setData(result.data);
-      } else {
-        throw new Error(result.error || 'No isolate distribution data received');
-      }
-    } catch (err: any) {
-      console.error('Error fetching isolate distribution data:', err);
-      setError(`Failed to load isolate distribution data: ${err.message}`);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load data on mount and when filters or demographic selection changes
+  // Fetch data on component mount and when filters/demographic changes
   useEffect(() => {
-    fetchData();
-  }, [activeFilters, selectedDemographic]);
+    fetchAllData();
+  }, [selectedDemographic, activeFilters]);
 
   // Helper function to get display name for categories
   const getDisplayName = (category: string) => {
-    if (selectedDemographic === 'ORGANISM' && organismMappings[category]) {
-      return organismMappings[category];
+    // For organisms, format common names
+    if (selectedDemographic === 'ORGANISM') {
+      const organismMappings: Record<string, string> = {
+        'eco': 'E. coli',
+        'kpn': 'K. pneumoniae',
+        'pae': 'P. aeruginosa',
+        'aba': 'A. baumannii',
+        'sau': 'S. aureus',
+        'efm': 'E. faecium',
+        'efa': 'E. faecalis',
+        'spn': 'S. pneumoniae',
+        'sep': 'S. epidermidis'
+      };
+      return organismMappings[category.toLowerCase()] || category;
     }
     return category;
   };
 
-  // Mapped data with organism names when viewing by organism
+  // Mapped data with formatted names
   const displayData = useMemo(() => {
     if (!data) return null;
     
@@ -302,7 +280,7 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
         displayName: getDisplayName(item.organism)
       }))
     };
-  }, [data, selectedDemographic, organismMappings]);
+  }, [data, selectedDemographic]);
 
   // Custom tooltip for the donut chart
   const CustomTooltip = ({ active, payload }: any) => {
@@ -357,7 +335,6 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
                           onSelect={() => {
                             setSelectedDemographic(option.value);
                             setSelectedDemographicOpen(false);
-                            console.log(`Selected demographic: ${option.value}`);
                           }}
                         >
                           <Check
@@ -385,10 +362,7 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
                   ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
                   : 'text-gray-500 hover:text-gray-700'
               }`}
-              onClick={() => {
-                setShowTable(!showTable);
-                console.log(`${showTable ? 'Show chart' : 'Show table'} view for all isolates distribution`);
-              }}
+              onClick={() => setShowTable(!showTable)}
             >
               <TableIcon className="h-4 w-4" />
             </Button>
@@ -396,10 +370,7 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
-              onClick={() => {
-                console.log(`Download all isolates distribution data`);
-                // TODO: Implement download functionality
-              }}
+              onClick={() => console.log('Download all isolates distribution data')}
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -711,8 +682,6 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
                       </div>
                     ))}
                   </div>
-
-
                 </div>
               </div>
             )}
