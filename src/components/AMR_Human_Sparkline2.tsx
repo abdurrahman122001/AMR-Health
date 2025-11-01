@@ -692,15 +692,6 @@ export function AMR_Human_Sparkline2() {
           </div>
         )}
 
-        {/* Debug Info */}
-        {!isLoading && rawData.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-sm text-blue-700">
-              Loaded {rawData.length} records. Check console for detailed data analysis.
-            </p>
-          </div>
-        )}
-
         {/* Sparkline Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {sparklineData.map((combo, index) => (

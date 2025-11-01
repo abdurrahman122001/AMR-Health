@@ -6,10 +6,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { Download, ChevronDown, Check, Loader2, AlertCircle, Table as TableIcon } from 'lucide-react';
 import { cn } from './ui/utils';
-import { SearchableSelect } from './SearchableSelect';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { shouldHideESBLPair, isESBLOrganism } from '../utils/esblFilterUtils';
 
 // Interface for heatmap data
 interface HeatmapData {
@@ -41,6 +38,20 @@ const formatAntibioticName = (name: string): string => {
     .join('-');
 };
 
+// ESBL filtering function
+const shouldHideESBLPair = (organismCode: string, antibioticCode: string): boolean => {
+  const esblOrganisms = ['eco', 'kpn', 'pae', 'aba'];
+  const betaLactamAntibiotics = [
+    'amc', 'amp', 'atm', 'caz', 'fep', 'cfm', 'cfo', 'cfp', 'cfs', 'ctx', 
+    'cxm', 'czl', 'fox', 'cro', 'cxa', 'pip', 'ptz', 'sam', 'tcc', 'tim'
+  ];
+  
+  const isESBLOrganism = esblOrganisms.includes(organismCode.toLowerCase());
+  const isBetaLactam = betaLactamAntibiotics.includes(antibioticCode.toLowerCase());
+  
+  return isESBLOrganism && isBetaLactam;
+};
+
 export const AMR_Human_Overview_Heat = () => {
   const [filterType, setFilterType] = useState<string>('');
   const [filterValue, setFilterValue] = useState<string>('');
@@ -50,37 +61,9 @@ export const AMR_Human_Overview_Heat = () => {
   const [heatmapData, setHeatmapData] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
-  const [antibioticMappings, setAntibioticMappings] = useState<{ [key: string]: string }>({});
   const [selectedOrganismType, setSelectedOrganismType] = useState<string>('whonet-priority');
   const [organismTypeOpen, setOrganismTypeOpen] = useState(false);
   const [showTable, setShowTable] = useState(false);
-  const [organismMappings, setOrganismMappings] = useState<{ [key: string]: string }>({});
-
-  // Interface for antibiotic mapping
-  interface AntibioticMapping {
-    column_name: string;
-    simple_name: string;
-  }
-  
-  // Interface for organism mapping from vw_amr_hh_organisms
-  interface OrganismMapping {
-    code: string;
-    organism_name: string;
-  }
-
-  // Helper function to get antibiotic display name
-  const getAntibioticName = (columnName: string): string => {
-    return antibioticMappings[columnName] || columnName;
-  };
-  
-  // Helper function to get organism display name from vw_amr_hh_organisms mappings
-  const getOrganismName = (code: string): string => {
-    if (!code) return code;
-    // Use lowercase for case-insensitive lookup
-    const mapping = organismMappings[code.toLowerCase()];
-    return mapping || code;
-  };
 
   // Organism category options
   const organismCategoryOptions = [
@@ -120,280 +103,340 @@ export const AMR_Human_Overview_Heat = () => {
 
     switch (type) {
       case 'whonet-priority':
-        // WHONET Priority Pathogens: sau, eco, spn, kpn, ent, efa, efm
         return organisms.filter(org => ['sau', 'eco', 'spn', 'kpn', 'ent', 'efa', 'efm'].includes(org.toLowerCase()));
       
       case 'gram-positive':
-        // Would need ORG_TYPE data from backend - for now filter by known gram-positive codes
         return organisms.filter(org => ['sau', 'spn', 'efm', 'efa', 'ste', 'sho', 'sha', 'sco', 'str', 'spg', 'sag', 'svi', 'enc'].includes(org.toLowerCase()));
       
       case 'gram-negative':
-        // Would need ORG_TYPE data from backend - for now filter by known gram-negative codes  
         return organisms.filter(org => ['eco', 'kpn', 'pae', 'ab-', 'abu', 'sal', 'stv', 'shi', 'ent', 'cfr', 'ser', 'pro', 'mor', 'cit', 'har', 'yer'].includes(org.toLowerCase()));
       
       case 'indicator':
       default:
-        // Indicator bacteria: sau, eco, spn, kpn, ent, efa, efm
         return organisms.filter(org => ['sau', 'eco', 'spn', 'kpn', 'ent', 'efa', 'efm'].includes(org.toLowerCase()));
     }
   };
 
-
-
-  // Fetch filter options from server
-  const fetchFilterOptions = async (column: string) => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.values) {
-          return data.values.map((option: string) => ({
-            value: option, // Keep original case for database queries
-            label: option
-          }));
-        }
-      }
-    } catch (error) {
-      console.error(`Error fetching ${column} options:`, error);
-    }
-    return [];
+  // Antibiotic mappings for display names
+  const antibioticMappings: { [key: string]: string } = {
+    'AMP ND10': 'Ampicillin',
+    'AMC ND20': 'Amoxicillin-clavulanate',
+    'CTX ND30': 'Cefotaxime',
+    'CAZ ND30': 'Ceftazidime',
+    'CRO ND30': 'Ceftriaxone',
+    'IPM ND10': 'Imipenem',
+    'MEM ND10': 'Meropenem',
+    'CIP ND5': 'Ciprofloxacin',
+    'GEN ND10': 'Gentamicin',
+    'AMK ND30': 'Amikacin',
+    'TCY ND30': 'Tetracycline',
+    'SXT ND1 2': 'Trimethoprim-sulfamethoxazole',
+    'OXA ND1': 'Oxacillin',
+    'VAN ND30': 'Vancomycin',
+    'ERY ND15': 'Erythromycin',
+    'CHL ND30': 'Chloramphenicol',
+    'NIT ND300': 'Nitrofurantoin',
+    'TOB ND10': 'Tobramycin',
+    'CLI ND2': 'Clindamycin',
+    'FOX ND30': 'Cefoxitin',
+    'OFX ND5': 'Ofloxacin',
+    'TCC ND75': 'Ticarcillin-clavulanate',
+    'CXM ND30': 'Cefuroxime',
+    'NOR ND10': 'Norfloxacin',
+    'ATM ND30': 'Aztreonam',
+    'RIF ND5': 'Rifampin',
+    'DOX ND30': 'Doxycycline',
+    'MNO ND30': 'Minocycline',
+    'TEC ND30': 'Teicoplanin',
+    'FEP ND30': 'Cefepime',
+    'CTC ND30': 'Chlortetracycline',
+    'CCV ND30': 'Cefaclor',
+    'TIO ND30': 'Ceftiofur',
+    'NAL ND30': 'Nalidixic acid',
+    'TZP ND100': 'Piperacillin-tazobactam',
+    'GEH ND120': 'Geopen'
   };
 
-  // Load filter options on mount
-  useEffect(() => {
-    const loadFilterOptions = async () => {
-      // Use same columns as MDR_Incidence_Demographics (excluding ORGANISM to avoid conflicts with organism type selector)
-      const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+  // Organism mappings for display names
+  const organismMappings: { [key: string]: string } = {
+    'eco': 'E. coli',
+    'kpn': 'K. pneumoniae',
+    'pae': 'P. aeruginosa',
+    'aba': 'A. baumannii',
+    'sau': 'S. aureus',
+    'efm': 'E. faecium',
+    'efa': 'E. faecalis',
+    'spn': 'S. pneumoniae',
+    'sep': 'S. epidermidis',
+    'sag': 'S. agalactiae',
+    'sma': 'S. marcescens',
+    'ecl': 'E. cloacae',
+    'efa': 'E. faecalis',
+    'efm': 'E. faecium'
+  };
 
-      for (const column of amrColumns) {
-        const options = await fetchFilterOptions(column);
-        if (options.length > 0) {
-          newFilterOptions[column.toLowerCase()] = options;
-        }
+  // Helper function to get antibiotic display name
+  const getAntibioticName = (columnName: string): string => {
+    return antibioticMappings[columnName] || columnName;
+  };
+  
+  // Helper function to get organism display name
+  const getOrganismName = (code: string): string => {
+    if (!code) return code;
+    const mapping = organismMappings[code.toLowerCase()];
+    return mapping || code;
+  };
+
+  // Filter options
+  const filterTypeOptions = [
+    { value: 'SEX', label: 'Sex' },
+    { value: 'AGE_CAT', label: 'Age Category' },
+    { value: 'PAT_TYPE', label: 'Patient Type' },
+    { value: 'INSTITUTION', label: 'Institution' },
+    { value: 'DEPARTMENT', label: 'Department' },
+    { value: 'WARD_TYPE', label: 'Ward Type' },
+    { value: 'YEAR_SPEC', label: 'Year Specimen' },
+    { value: 'X_REGION', label: 'Region' }
+  ];
+
+  // Helper function to extract unique values from raw data
+  const extractUniqueValues = (rows: any[], columnName: string): Array<{value: string, label: string}> => {
+    const uniqueValues = new Set();
+    
+    rows.forEach(row => {
+      const value = row[columnName];
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(value.toString().trim());
       }
+    });
+    
+    const sortedValues = Array.from(uniqueValues).sort((a: any, b: any) => 
+      a.toString().localeCompare(b.toString())
+    );
+    
+    return sortedValues.map((value: any) => ({
+      value: value,
+      label: value
+    }));
+  };
 
-      setFilterOptions(newFilterOptions);
-      console.log('Filter options loaded:', newFilterOptions);
+  // Calculate heatmap data from raw rows
+  const calculateHeatmapData = (rows: any[]): HeatmapData => {
+    console.log('Calculating heatmap data from', rows.length, 'rows');
+    
+    const organisms = new Set<string>();
+    const antibiotics = new Set<string>();
+    const heatmapData: Record<string, Record<string, number>> = {};
+    const heatmapCounts: Record<string, Record<string, { resistant: number, total: number }>> = {};
+
+    // Define antibiotic columns to analyze
+    const antibioticColumns = [
+      'AMP ND10', 'AMC ND20', 'CTX ND30', 'CAZ ND30', 'CRO ND30', 
+      'IPM ND10', 'MEM ND10', 'CIP ND5', 'GEN ND10', 'AMK ND30',
+      'TCY ND30', 'SXT ND1 2', 'OXA ND1', 'VAN ND30', 'ERY ND15',
+      'CHL ND30', 'NIT ND300', 'TOB ND10', 'CLI ND2', 'FOX ND30',
+      'OFX ND5', 'TCC ND75', 'CXM ND30', 'NOR ND10', 'ATM ND30',
+      'RIF ND5', 'DOX ND30', 'MNO ND30', 'TEC ND30', 'FEP ND30'
+    ];
+
+    // Helper function to determine resistance from zone size
+    const isResistant = (zoneSize: any, antibiotic: string): boolean => {
+      if (!zoneSize || zoneSize === '') return false;
+      
+      const zoneNum = parseFloat(zoneSize);
+      if (isNaN(zoneNum)) return false;
+
+      // Different breakpoints for different antibiotic classes
+      if (['IPM ND10', 'MEM ND10'].includes(antibiotic)) {
+        return zoneNum <= 19; // Carbapenems
+      } else if (['CTX ND30', 'CAZ ND30', 'CRO ND30', 'FEP ND30'].includes(antibiotic)) {
+        return zoneNum <= 22; // Cephalosporins
+      } else if (['VAN ND30'].includes(antibiotic)) {
+        return zoneNum <= 17; // Vancomycin
+      } else if (['OXA ND1'].includes(antibiotic)) {
+        return zoneNum <= 17; // Oxacillin/Methicillin
+      } else {
+        return zoneNum <= 15; // Default breakpoint
+      }
     };
 
-    loadFilterOptions();
-  }, []);
+    // Initialize data structures
+    rows.forEach(row => {
+      const organism = row.ORGANISM;
+      if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+        organisms.add(organism);
+        
+        // Initialize organism entry if not exists
+        if (!heatmapData[organism]) {
+          heatmapData[organism] = {};
+          heatmapCounts[organism] = {};
+        }
 
-  // Combined filter configurations (matching MDR_Incidence_Demographics pattern)
-  const filterConfigs = useMemo(() => {
-    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
+        // Process each antibiotic
+        antibioticColumns.forEach(antibiotic => {
+          antibiotics.add(antibiotic);
+          
+          // Initialize antibiotic entry if not exists
+          if (!heatmapCounts[organism][antibiotic]) {
+            heatmapCounts[organism][antibiotic] = { resistant: 0, total: 0 };
+          }
 
-    const configMapping: Record<string, string> = {
-      'sex': 'Sex',
-      'age_cat': 'Age Category',
-      'pat_type': 'Patient Type',
-      'institution': 'Institution',
-      'department': 'Department',
-      'ward_type': 'Ward Type',
-      'year_spec': 'Year Specimen',
-      'x_region': 'Region'
-    };
-
-    Object.entries(configMapping).forEach(([key, label]) => {
-      configs[key] = {
-        label,
-        options: filterOptions[key] || []
-      };
+          const zoneSize = row[antibiotic];
+          if (zoneSize !== undefined && zoneSize !== null && zoneSize !== '') {
+            heatmapCounts[organism][antibiotic].total += 1;
+            if (isResistant(zoneSize, antibiotic)) {
+              heatmapCounts[organism][antibiotic].resistant += 1;
+            }
+          }
+        });
+      }
     });
 
-    return configs;
-  }, [filterOptions]);
+    // Calculate resistance percentages
+    organisms.forEach(organism => {
+      antibiotics.forEach(antibiotic => {
+        const counts = heatmapCounts[organism]?.[antibiotic];
+        if (counts && counts.total >= 30) { // Only include pairs with n≥30
+          const percentage = counts.total > 0 ? (counts.resistant / counts.total) * 100 : 0;
+          heatmapData[organism][antibiotic] = Math.round(percentage);
+        } else {
+          heatmapData[organism][antibiotic] = -1; // Mark as insufficient data
+        }
+      });
+    });
 
-  // Fetch heatmap data from server
-  const fetchHeatmapData = async () => {
-    setLoading(true);
-    setError(null);
-    
+    const result: HeatmapData = {
+      organisms: Array.from(organisms),
+      antibiotics: Array.from(antibiotics),
+      heatmapData,
+      heatmapCounts,
+      totalRecords: rows.length,
+      dataSource: 'AMR_HH',
+      tableName: 'AMR Human Health',
+      timestamp: new Date().toISOString(),
+      appliedFilters: activeFilters.map(f => [f.type, f.value])
+    };
+
+    console.log('Heatmap data calculated:', {
+      organisms: result.organisms.length,
+      antibiotics: result.antibiotics.length,
+      totalRecords: result.totalRecords
+    });
+
+    return result;
+  };
+
+  // Fetch all data from local API endpoint
+  const fetchAllData = async () => {
     try {
-      console.log('Fetching AMR heatmap data...');
-      console.log('Selected organism type:', selectedOrganismType);
-      console.log('Active filters:', activeFilters);
+      setLoading(true);
+      setError(null);
       
-      // First fetch antibiotic column mappings
-      const mappingsController = new AbortController();
-      const mappingsTimeoutId = setTimeout(() => {
-        console.warn('Antibiotic mappings request timeout after 30 seconds');
-        mappingsController.abort();
-      }, 30000);
-
-      const mappingsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/antibiotic-mappings`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
-          signal: mappingsController.signal
-        }
-      );
-      
-      clearTimeout(mappingsTimeoutId);
-
-      let currentMappings: { [key: string]: string } = {};
-      if (mappingsResponse.ok) {
-        const mappingsData = await mappingsResponse.json();
-        console.log('Antibiotic mappings response:', mappingsData);
-        
-        if (mappingsData.success && mappingsData.mappings) {
-          // Convert array to object for faster lookups
-          mappingsData.mappings.forEach((mapping: AntibioticMapping) => {
-            currentMappings[mapping.column_name] = mapping.simple_name;
-          });
-          
-          setAntibioticMappings(currentMappings);
-          console.log('Antibiotic mappings loaded for heatmap:', currentMappings);
-        } else {
-          console.error('Failed to get antibiotic mappings:', mappingsData.message);
-        }
-      } else {
-        console.error('Failed to fetch antibiotic mappings:', mappingsResponse.statusText);
-      }
-      
-      // Fetch organism name mappings from vw_amr_hh_organisms
-      const organismMappingsController = new AbortController();
-      const organismMappingsTimeoutId = setTimeout(() => {
-        console.warn('Organism mappings request timeout after 30 seconds');
-        organismMappingsController.abort();
-      }, 30000);
-
-      const organismMappingsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mapping`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
-          signal: organismMappingsController.signal
-        }
-      );
-      
-      clearTimeout(organismMappingsTimeoutId);
-
-      let currentOrganismMappings: { [key: string]: string } = {};
-      if (organismMappingsResponse.ok) {
-        const organismMappingsData = await organismMappingsResponse.json();
-        console.log('Organism mappings response:', organismMappingsData);
-        
-        if (organismMappingsData.success && organismMappingsData.mappings) {
-          // Convert array to object for faster lookups (case-insensitive)
-          organismMappingsData.mappings.forEach((mapping: any) => {
-            // The view uses 'code' not 'organism_code'
-            const code = mapping.code || mapping.organism_code;
-            const name = mapping.organism_name;
-            if (code && name) {
-              currentOrganismMappings[code.toLowerCase()] = name;
-            }
-          });
-          
-          setOrganismMappings(currentOrganismMappings);
-          console.log(`✅ Organism mappings loaded: ${Object.keys(currentOrganismMappings).length} organisms`);
-        } else {
-          console.error('Failed to get organism mappings:', organismMappingsData.message);
-        }
-      } else {
-        console.error('Failed to fetch organism mappings:', organismMappingsResponse.statusText);
-      }
-      
-      // Build query parameters from active filters (matching MDR_Incidence_Demographics pattern)
-      const queryParams = new URLSearchParams();
-      activeFilters.forEach(filter => {
-        // Map filter types to AMR_HH column names
-        const columnMapping: Record<string, string> = {
-          'sex': 'SEX',
-          'age_cat': 'AGE_CAT',
-          'pat_type': 'PAT_TYPE',
-          'institution': 'INSTITUTION',
-          'department': 'DEPARTMENT',
-          'ward_type': 'WARD_TYPE',
-          'year_spec': 'YEAR_SPEC',
-          'x_region': 'X_REGION'
-        };
-        
-        const columnName = columnMapping[filter.type];
-        if (columnName) {
-          const filterValue = String(filter.value).trim();
-          if (filterValue && filterValue !== '') {
-            queryParams.append(columnName, filterValue);
-          }
-        }
-      });
-      
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-heatmap${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      
-      // Add timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
-      
-      const response = await fetch(url, {
+      console.log('Fetching all AMR data from local API for Heatmap...');
+      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+        method: 'GET',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
           'Content-Type': 'application/json'
-        },
-        signal: controller.signal
+        }
       });
       
-      clearTimeout(timeoutId);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Heatmap data received:', data);
-        setHeatmapData(data);
-      } else {
-        const errorText = await response.text();
-        console.error('Server error response:', errorText);
-        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      const apiData = await response.json();
+      console.log('Full API response received for Heatmap:', apiData);
+
+      if (!apiData.success || !apiData.data || !apiData.data.rows) {
+        throw new Error('Invalid API response format');
       }
+
+      const rows = apiData.data.rows;
+      
+      // Log sample data for debugging
+      console.log('Sample rows for debugging:', rows.slice(0, 3));
+      console.log('Available columns:', apiData.data.columns);
+      console.log('Organism values found:', [...new Set(rows.map(r => r.ORGANISM).filter(Boolean))].slice(0, 10));
+
+      // Apply active filters
+      let filteredRows = rows;
+      if (activeFilters.length > 0) {
+        filteredRows = rows.filter(row => {
+          return activeFilters.every(filter => {
+            const rowValue = row[filter.type];
+            return rowValue !== undefined && rowValue !== null && 
+                   rowValue.toString().toLowerCase() === filter.value.toLowerCase();
+          });
+        });
+        console.log('After filtering:', filteredRows.length, 'rows');
+      }
+      
+      // Process heatmap data from filtered rows
+      const processedData = calculateHeatmapData(filteredRows);
+      setHeatmapData(processedData);
+      
     } catch (error) {
-      console.error('Error fetching heatmap data:', error);
-      if (error.name === 'AbortError') {
-        setError('Request timed out. The server may be experiencing high load.');
-      } else {
-        setError(error instanceof Error ? error.message : 'Failed to load heatmap data');
-      }
+      console.error('Error fetching AMR data from local API for Heatmap:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch data');
+      setHeatmapData(null);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load data on mount and when filters or organism type change
-  useEffect(() => {
-    fetchHeatmapData();
-  }, [activeFilters, selectedOrganismType]);
+  // Filter configs
+  const filterConfigs = useMemo(() => {
+    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
 
-  // Filter helpers
+    const configMapping: Record<string, string> = {
+      'SEX': 'Sex',
+      'AGE_CAT': 'Age Category',
+      'PAT_TYPE': 'Patient Type',
+      'INSTITUTION': 'Institution',
+      'DEPARTMENT': 'Department',
+      'WARD_TYPE': 'Ward Type',
+      'YEAR_SPEC': 'Year Specimen',
+      'X_REGION': 'Region'
+    };
+
+    // Load filter options when data is available
+    if (heatmapData) {
+      Object.entries(configMapping).forEach(([key, label]) => {
+        configs[key.toLowerCase()] = {
+          label,
+          options: [] // Would need raw data to populate this
+        };
+      });
+    }
+
+    return configs;
+  }, [heatmapData]);
+
+  // Fetch data on component mount and when filters change
+  useEffect(() => {
+    fetchAllData();
+  }, [activeFilters]);
+
+  // Filter helper functions
   const filterHelpers = {
     addFilter: () => {
       if (filterType && filterValue) {
-        const typeConfig = filterConfigs[filterType as keyof typeof filterConfigs];
-        const valueOption = typeConfig?.options.find(opt => opt.value === filterValue);
+        const typeOption = filterTypeOptions.find(opt => opt.value === filterType);
+        const valueOption = getFilterValueOptionsForType(filterType).find(opt => opt.value === filterValue);
         
-        if (typeConfig && valueOption) {
+        if (typeOption && valueOption) {
           const newFilter = {
             type: filterType,
             value: filterValue,
-            label: `${typeConfig.label}: ${valueOption.label}`
+            label: `${typeOption.label}: ${valueOption.label}`
           };
           
-          // Check if filter already exists
-          const exists = activeFilters.some(f => f.type === filterType && f.value === filterValue);
-          if (!exists) {
+          // Avoid duplicate filters
+          const isDuplicate = activeFilters.some(
+            filter => filter.type === newFilter.type && filter.value === newFilter.value
+          );
+          
+          if (!isDuplicate) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
@@ -402,9 +445,11 @@ export const AMR_Human_Overview_Heat = () => {
         setFilterValue('');
       }
     },
+    
     removeFilter: (index: number) => {
       setActiveFilters(activeFilters.filter((_, i) => i !== index));
     },
+    
     clearAllFilters: () => {
       setActiveFilters([]);
     }
@@ -412,10 +457,7 @@ export const AMR_Human_Overview_Heat = () => {
 
   // Get filter type options
   const getFilterTypeOptions = () => {
-    return Object.entries(filterConfigs).map(([key, config]) => ({
-      value: key,
-      label: config.label
-    }));
+    return filterTypeOptions;
   };
 
   // Get filter value options for selected type
@@ -499,7 +541,6 @@ export const AMR_Human_Overview_Heat = () => {
                           onSelect={() => {
                             setSelectedOrganismType(option.value);
                             setOrganismTypeOpen(false);
-                            console.log(`Selected organism category: ${option.value}`);
                           }}
                         >
                           <Check
@@ -527,10 +568,7 @@ export const AMR_Human_Overview_Heat = () => {
                   ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
                   : 'text-gray-500 hover:text-gray-700'
               }`}
-              onClick={() => {
-                setShowTable(!showTable);
-                console.log(`${showTable ? 'Show chart' : 'Show table'} view for heatmap`);
-              }}
+              onClick={() => setShowTable(!showTable)}
             >
               <TableIcon className="h-4 w-4" />
             </Button>
@@ -538,9 +576,7 @@ export const AMR_Human_Overview_Heat = () => {
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
-              onClick={() => {
-                console.log('Download heatmap data');
-              }}
+              onClick={() => console.log('Download heatmap data')}
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -829,132 +865,129 @@ export const AMR_Human_Overview_Heat = () => {
             ) : (
               /* Heatmap View */
               <div className="border rounded-lg overflow-hidden">
-            {/* Header row with organisms */}
-            <div className="flex bg-gray-50 border-b">
-              <div className="w-48 font-semibold text-sm border-r py-[0px] px-[12px] flex items-center text-[13px]">Antibiotic / Organism</div>
-              <div className="flex flex-1">
-                {organisms.map((organism, index) => {
-                  const displayName = getOrganismName(organism);
-
-                  return (
-                    <div
-                      key={organism}
-                      className={`flex-1 h-16 flex items-center justify-center relative px-1 ${
-                        index < organisms.length - 1 ? 'border-r' : ''
-                      }`}
-                    >
-                      <span 
-                        className="font-medium text-center leading-tight text-[13px] italic"
-                        title={`${displayName} (${organism})`}
-                      >
-                        {displayName}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Data rows */}
-            {antibiotics.map((antibiotic, rowIndex) => (
-              <div key={antibiotic} className={`flex ${rowIndex < antibiotics.length - 1 ? 'border-b' : ''}`}>
-                <div className="w-48 p-3 text-sm font-medium border-r bg-gray-50 text-[13px]">
-                  {getAntibioticName(antibiotic)}
-                </div>
-                <div className="flex flex-1">
-                  {organisms.map((organism, colIndex) => {
-                    // ESBL filtering: hide inappropriate β-lactam pairs
-                    const isESBLExcluded = shouldHideESBLPair(organism, antibiotic);
-                    
-                    const percentage = heatmapData?.heatmapData?.[organism]?.[antibiotic];
-                    const counts = heatmapData?.heatmapCounts?.[organism]?.[antibiotic];
-                    const hasData = percentage !== undefined && percentage !== -1;
-                    
-                    // Apply greyed-out styling for ESBL-excluded pairs
-                    const backgroundColor = isESBLExcluded ? '#f9fafb' : (hasData ? getResistanceAlertColor(percentage) : '#f3f4f6');
-                    const textColor = isESBLExcluded ? '#9ca3af' : (hasData && percentage >= 40 ? 'white' : 'black');
-                    
-                    // Create tooltip content
-                    const getTooltipContent = () => {
+                {/* Header row with organisms */}
+                <div className="flex bg-gray-50 border-b">
+                  <div className="w-48 font-semibold text-sm border-r py-[0px] px-[12px] flex items-center text-[13px]">Antibiotic / Organism</div>
+                  <div className="flex flex-1">
+                    {organisms.map((organism, index) => {
                       const displayName = getOrganismName(organism);
 
-                      const antibioticDisplayName = getAntibioticName(antibiotic);
-
-                      if (isESBLExcluded) {
-                        return (
-                          <div className="text-sm">
-                            <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
-                            <div className="text-xs text-gray-500">
-                              Hidden: ESBL phenotype excludes β-lactams
-                            </div>
-                          </div>
-                        );
-                      } else if (hasData && counts) {
-                        return (
-                          <div className="text-sm">
-                            <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
-                            <div className="text-xs space-y-1">
-                              <div>Resistance Rate: <span className="font-semibold">{percentage}%</span></div>
-                              <div>Resistant Isolates: <span className="font-semibold">{counts.resistant}</span> out of <span className="font-semibold">{counts.total}</span></div>
-                            </div>
-                          </div>
-                        );
-                      } else if (counts) {
-                        return (
-                          <div className="text-sm">
-                            <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
-                            <div className="text-xs space-y-1">
-                              <div>Insufficient data (N &lt; 30)</div>
-                              <div>Available Isolates: <span className="font-semibold">{counts.total}</span></div>
-                            </div>
-                          </div>
-                        );
-                      } else {
-                        return (
-                          <div className="text-sm">
-                            <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
-                            <div className="text-xs">No data available</div>
-                          </div>
-                        );
-                      }
-                    };
-                    
-                    return (
-                      <Tooltip key={`${antibiotic}-${organism}`}>
-                        <TooltipTrigger asChild>
-                          <div
-                            className={`flex-1 h-10 flex items-center justify-center text-xs cursor-help ${
-                              colIndex < organisms.length - 1 ? 'border-r' : ''
-                            }`}
-                            style={{ 
-                              backgroundColor, 
-                              color: textColor
-                            }}
+                      return (
+                        <div
+                          key={organism}
+                          className={`flex-1 h-16 flex items-center justify-center relative px-1 ${
+                            index < organisms.length - 1 ? 'border-r' : ''
+                          }`}
+                        >
+                          <span 
+                            className="font-medium text-center leading-tight text-[13px] italic"
+                            title={`${displayName} (${organism})`}
                           >
-                            {isESBLExcluded ? (
-                              <span className="text-gray-400">—</span>
-                            ) : hasData ? (
-                              <span className="font-semibold">{percentage}%</span>
-                            ) : (
-                              <span className="text-gray-500">—</span>
-                            )}
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {getTooltipContent()}
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
+                            {displayName}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+
+                {/* Data rows */}
+                {antibiotics.map((antibiotic, rowIndex) => (
+                  <div key={antibiotic} className={`flex ${rowIndex < antibiotics.length - 1 ? 'border-b' : ''}`}>
+                    <div className="w-48 p-3 text-sm font-medium border-r bg-gray-50 text-[13px]">
+                      {getAntibioticName(antibiotic)}
+                    </div>
+                    <div className="flex flex-1">
+                      {organisms.map((organism, colIndex) => {
+                        // ESBL filtering: hide inappropriate β-lactam pairs
+                        const isESBLExcluded = shouldHideESBLPair(organism, antibiotic);
+                        
+                        const percentage = heatmapData?.heatmapData?.[organism]?.[antibiotic];
+                        const counts = heatmapData?.heatmapCounts?.[organism]?.[antibiotic];
+                        const hasData = percentage !== undefined && percentage !== -1;
+                        
+                        // Apply greyed-out styling for ESBL-excluded pairs
+                        const backgroundColor = isESBLExcluded ? '#f9fafb' : (hasData ? getResistanceAlertColor(percentage) : '#f3f4f6');
+                        const textColor = isESBLExcluded ? '#9ca3af' : (hasData && percentage >= 40 ? 'white' : 'black');
+                        
+                        // Create tooltip content
+                        const getTooltipContent = () => {
+                          const displayName = getOrganismName(organism);
+                          const antibioticDisplayName = getAntibioticName(antibiotic);
+
+                          if (isESBLExcluded) {
+                            return (
+                              <div className="text-sm">
+                                <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
+                                <div className="text-xs text-gray-500">
+                                  Hidden: ESBL phenotype excludes β-lactams
+                                </div>
+                              </div>
+                            );
+                          } else if (hasData && counts) {
+                            return (
+                              <div className="text-sm">
+                                <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
+                                <div className="text-xs space-y-1">
+                                  <div>Resistance Rate: <span className="font-semibold">{percentage}%</span></div>
+                                  <div>Resistant Isolates: <span className="font-semibold">{counts.resistant}</span> out of <span className="font-semibold">{counts.total}</span></div>
+                                </div>
+                              </div>
+                            );
+                          } else if (counts) {
+                            return (
+                              <div className="text-sm">
+                                <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
+                                <div className="text-xs space-y-1">
+                                  <div>Insufficient data (N &lt; 30)</div>
+                                  <div>Available Isolates: <span className="font-semibold">{counts.total}</span></div>
+                                </div>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <div className="text-sm">
+                                <div className="font-medium mb-1"><span className="italic">{displayName}</span> vs {antibioticDisplayName}</div>
+                                <div className="text-xs">No data available</div>
+                              </div>
+                            );
+                          }
+                        };
+                        
+                        return (
+                          <Tooltip key={`${antibiotic}-${organism}`}>
+                            <TooltipTrigger asChild>
+                              <div
+                                className={`flex-1 h-10 flex items-center justify-center text-xs cursor-help ${
+                                  colIndex < organisms.length - 1 ? 'border-r' : ''
+                                }`}
+                                style={{ 
+                                  backgroundColor, 
+                                  color: textColor
+                                }}
+                              >
+                                {isESBLExcluded ? (
+                                  <span className="text-gray-400">—</span>
+                                ) : hasData ? (
+                                  <span className="font-semibold">{percentage}%</span>
+                                ) : (
+                                  <span className="text-gray-500">—</span>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {getTooltipContent()}
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </>
         )}
-
-
 
         {/* Footer */}
         {!loading && !error && heatmapData && (
