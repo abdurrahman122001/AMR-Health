@@ -35,9 +35,9 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
   const [filterValue, setFilterValue] = useState<string>('');
   const [filterTypeOpen, setFilterTypeOpen] = useState(false);
   const [filterValueOpen, setFilterValueOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Array<{type: string, value: string, label: string}>>([]);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
-  
+  const [activeFilters, setActiveFilters] = useState<Array<{ type: string, value: string, label: string }>>([]);
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string, label: string }>>>({});
+
   // Organism mapping state
   const [organismMappings, setOrganismMappings] = useState<Record<string, string>>({});
 
@@ -56,14 +56,12 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
   // Fetch filter options from server
   const fetchFilterOptions = async (column: string) => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (response.ok) {
@@ -85,7 +83,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
   useEffect(() => {
     const loadFilterOptions = async () => {
       const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+      const newFilterOptions: Record<string, Array<{ value: string, label: string }>> = {};
 
       const columnLabels: Record<string, string> = {
         'SEX': 'Sex',
@@ -107,19 +105,17 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
 
       setFilterOptions(newFilterOptions);
     };
-    
+
     const loadOrganismMappings = async () => {
       try {
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mappings`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
+        const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
+        }
         );
-        
+
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.mappings) {
@@ -138,7 +134,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
 
   // Combined filter configs using dynamic options
   const filterConfigs = useMemo(() => {
-    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
+    const configs: Record<string, { label: string; options: Array<{ value: string, label: string }> }> = {};
 
     const configMapping: Record<string, string> = {
       'sex': 'Sex',
@@ -167,21 +163,21 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
       if (filterType && filterValue) {
         const typeConfig = filterConfigs[filterType as keyof typeof filterConfigs];
         const valueOption = typeConfig?.options.find(opt => opt.value === filterValue);
-        
+
         if (typeConfig && valueOption) {
           const newFilter = {
             type: filterType,
             value: filterValue,
             label: `${typeConfig.label}: ${valueOption.label}`
           };
-          
+
           // Check if filter already exists
           const exists = activeFilters.some(f => f.type === filterType && f.value === filterValue);
           if (!exists) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         setFilterType('');
         setFilterValue('');
       }
@@ -237,7 +233,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
           'year_spec': 'YEAR_SPEC',
           'x_region': 'X_REGION'
         };
-        
+
         const columnName = columnMapping[filter.type];
         if (columnName) {
           const filterValue = String(filter.value).trim();
@@ -247,14 +243,12 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
         }
       });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/mdr-incidence-demographics?${params.toString()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (!response.ok) {
@@ -326,7 +320,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-medium">MDRO Incidence by</span>
-            
+
             {/* Inline Demographic Dropdown */}
             <Popover open={selectedDemographicOpen} onOpenChange={setSelectedDemographicOpen}>
               <PopoverTrigger asChild>
@@ -372,16 +366,15 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
               </PopoverContent>
             </Popover>
           </div>
-          
+
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className={`h-8 w-8 px-[5px] py-[0px] ${ 
-                showTable 
-                  ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+              className={`h-8 w-8 px-[5px] py-[0px] ${showTable
+                ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100'
+                : 'text-gray-500 hover:text-gray-700'
+                }`}
               onClick={() => {
                 setShowTable(!showTable);
                 console.log(`${showTable ? 'Show chart' : 'Show table'} view for MDR incidence by ${selectedDemographic}`);
@@ -402,7 +395,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
             </Button>
           </div>
         </div>
-        
+
         <p className="text-sm text-gray-600 m-[0px] text-[13px] font-bold font-normal">
           Multi-drug resistant organism incidence rates per 1000 admissions across demographic groups • Showing only categories with 30+ tested isolates
           {loading && (
@@ -411,12 +404,12 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
             </span>
           )}
         </p>
-        
+
         {/* Inline Filter Controls */}
         <div className="bg-gray-50 rounded-lg p-4 border mt-[10px] mr-[0px] mb-[0px] ml-[0px]">
           <div className="flex items-center gap-4">
             <h3 className="font-semibold text-gray-900 text-sm">Filter MDR Data:</h3>
-            
+
             {/* Filter Type */}
             <div className="flex-1">
               <Popover open={filterTypeOpen} onOpenChange={setFilterTypeOpen}>
@@ -575,7 +568,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
             {(() => {
               // Filter to only show categories with 30+ isolates and add display names
               const filteredData = displayData.filter(item => item.total >= 30);
-              
+
               return (
                 <>
                   {showTable ? (
@@ -626,7 +619,7 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
                           )}
                         </TableBody>
                       </Table>
-                      
+
                       {/* Summary Statistics in Table View */}
                       {filteredData.length > 0 && (
                         <div className="border-t bg-gray-50 p-4">
@@ -647,9 +640,9 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
                             <div className="text-center">
                               <p className="text-xs text-gray-600 mb-1">Overall Rate</p>
                               <p className="text-lg font-semibold text-blue-600">
-                                {filteredData.length > 0 
-                                  ? ((filteredData.reduce((sum, item) => sum + item.mdrCases, 0) / 
-                                      filteredData.reduce((sum, item) => sum + item.total, 0)) * 1000).toFixed(1)
+                                {filteredData.length > 0
+                                  ? ((filteredData.reduce((sum, item) => sum + item.mdrCases, 0) /
+                                    filteredData.reduce((sum, item) => sum + item.total, 0)) * 1000).toFixed(1)
                                   : '0.0'
                                 }
                                 <span className="text-xs text-gray-500 ml-1">per 1000</span>
@@ -669,45 +662,45 @@ export function MDRIncidenceDemographics({ activeFilters: externalActiveFilters 
                             // Calculate the maximum value from the data and round up to the next multiple of 50 for better scale
                             const maxDataValue = Math.max(...filteredData.map(item => item.incidenceRate));
                             const maxYAxis = Math.ceil(maxDataValue / 50) * 50;
-                            
+
                             return (
                               <ResponsiveContainer width="100%" height={400}>
-                            <BarChart
-                              data={filteredData}
-                              margin={{ top: 5, right: 30, left: 5, bottom: 40 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis 
-                                dataKey="displayCategory" 
-                                type="category"
-                                angle={-45}
-                                textAnchor="end"
-                                height={20}
-                                interval={0}
-                                tickFormatter={(value) => value?.substring(0, 12)}
-                                style={{ fontSize: '12px' }}
-                              />
-                              <YAxis 
-                                type="number" 
-                                domain={[0, maxYAxis]}
-                                tickFormatter={(value) => `${value.toFixed(0)}`}
-                                tickCount={8}
-                                label={{ 
-                                  value: 'Rate per 1000 admissions', 
-                                  angle: -90, 
-                                  position: 'insideLeft',
-                                  style: { fontSize: '12px', textAnchor: 'middle' }
-                                }}
-                                style={{ fontSize: '12px' }}
-                              />
-                              <Tooltip content={<CustomTooltip />} />
-                              <Bar 
-                                dataKey="incidenceRate" 
-                                fill="#dc2626"
-                                radius={[4, 4, 0, 0]}
-                              />
-                            </BarChart>
-                          </ResponsiveContainer>
+                                <BarChart
+                                  data={filteredData}
+                                  margin={{ top: 5, right: 30, left: 5, bottom: 40 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis
+                                    dataKey="displayCategory"
+                                    type="category"
+                                    angle={-45}
+                                    textAnchor="end"
+                                    height={20}
+                                    interval={0}
+                                    tickFormatter={(value) => value?.substring(0, 12)}
+                                    style={{ fontSize: '12px' }}
+                                  />
+                                  <YAxis
+                                    type="number"
+                                    domain={[0, maxYAxis]}
+                                    tickFormatter={(value) => `${value.toFixed(0)}`}
+                                    tickCount={8}
+                                    label={{
+                                      value: 'Rate per 1000 admissions',
+                                      angle: -90,
+                                      position: 'insideLeft',
+                                      style: { fontSize: '12px', textAnchor: 'middle' }
+                                    }}
+                                    style={{ fontSize: '12px' }}
+                                  />
+                                  <Tooltip content={<CustomTooltip />} />
+                                  <Bar
+                                    dataKey="incidenceRate"
+                                    fill="#dc2626"
+                                    radius={[4, 4, 0, 0]}
+                                  />
+                                </BarChart>
+                              </ResponsiveContainer>
                             );
                           })()}
 

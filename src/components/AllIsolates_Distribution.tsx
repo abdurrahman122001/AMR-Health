@@ -136,7 +136,7 @@ export function AllIsolatesDistribution({ activeFilters: externalActiveFilters =
       setError(null);
       
       console.log('Fetching all AMR data from local API for Isolates Distribution...');
-      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'

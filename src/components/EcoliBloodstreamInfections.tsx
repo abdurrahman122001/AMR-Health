@@ -58,12 +58,12 @@ export function EcoliBloodstreamInfections() {
   // Build E. coli filters
   const buildFilters = () => {
     const filters: Record<string, string> = {};
-    
+
     // Add E. coli-specific filters
     activeFilters.forEach(filter => {
       filters[filter.type.toUpperCase()] = filter.value;
     });
-    
+
     return filters;
   };
 
@@ -72,11 +72,11 @@ export function EcoliBloodstreamInfections() {
     try {
       setLoading(true);
       setError(null);
-      
+
       console.log('Fetching E. coli 3GC-R bloodstream infection data');
-      
+
       // Build URL with filters if provided
-      const url = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-2267887d/ecoli-3gc-bloodstream-infections`);
+      const url = new URL(`https://backend.ajhiveprojects.com/v1/amr-health-v2`);
       const filters = buildFilters();
       if (filters) {
         Object.entries(filters).forEach(([key, value]) => {
@@ -85,9 +85,9 @@ export function EcoliBloodstreamInfections() {
           }
         });
       }
-      
+
       console.log(`Request URL: ${url.toString()}`);
-      
+
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: {
@@ -99,7 +99,7 @@ export function EcoliBloodstreamInfections() {
       if (response.ok) {
         const responseData = await response.json();
         console.log('E. coli 3GC-R BSI response:', responseData);
-        
+
         setData({
           resistant: responseData.resistantCount || 0,
           total: responseData.totalTested || 0
@@ -127,22 +127,20 @@ export function EcoliBloodstreamInfections() {
       setLoadingFilterValues(prev => ({ ...prev, [columnName]: true }));
       setFilterValueErrors(prev => ({ ...prev, [columnName]: '' }));
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${columnName.toUpperCase()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
@@ -162,7 +160,7 @@ export function EcoliBloodstreamInfections() {
 
       // Cache the results
       setFilterValueCache(prev => ({ ...prev, [columnName]: options }));
-      
+
       return options;
     } catch (err) {
       console.error(`Error fetching filter values for ${columnName}:`, err);
@@ -184,23 +182,23 @@ export function EcoliBloodstreamInfections() {
       if (filterType && filterValue) {
         const typeOption = filterTypeOptions.find(opt => opt.value === filterType);
         const valueOption = getFilterValueOptions(filterType).find(opt => opt.value === filterValue);
-        
+
         if (typeOption && valueOption) {
           const newFilter: Filter = {
             type: filterType,
             value: filterValue,
             label: `${typeOption.label}: ${valueOption.label}`
           };
-          
+
           const isDuplicate = activeFilters.some(
             filter => filter.type === newFilter.type && filter.value === newFilter.value
           );
-          
+
           if (!isDuplicate) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         setFilterType('');
         setFilterValue('');
       }
@@ -290,7 +288,7 @@ export function EcoliBloodstreamInfections() {
                 </TooltipContent>
               </TooltipComponent>
             </div>
-            
+
             {/* Filter Type */}
             <div className="flex-1">
               <SearchableSelect
@@ -311,9 +309,9 @@ export function EcoliBloodstreamInfections() {
                 disabled={!filterType || loadingFilterValues[filterType]}
                 placeholder={
                   !filterType ? "Select type first" :
-                  loadingFilterValues[filterType] ? "Loading values..." :
-                  filterValueErrors[filterType] ? "Error loading values" :
-                  "Search value..."
+                    loadingFilterValues[filterType] ? "Loading values..." :
+                      filterValueErrors[filterType] ? "Error loading values" :
+                        "Search value..."
                 }
                 className="w-full text-sm"
               />
@@ -409,7 +407,7 @@ export function EcoliBloodstreamInfections() {
                     <text x="40%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-sm font-medium fill-gray-700">
                       E. coli 3GC-R
                     </text>
-                    <Tooltip 
+                    <Tooltip
                       formatter={(value: number) => [value, 'Count']}
                       labelFormatter={(label) => `${label} Cases`}
                     />
@@ -443,7 +441,7 @@ export function EcoliBloodstreamInfections() {
                 </div>
                 <div className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
                   <div className="flex items-start gap-3 flex-1">
-                    <div 
+                    <div
                       className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
                       style={{ backgroundColor: alertColor }}
                     />
@@ -462,7 +460,7 @@ export function EcoliBloodstreamInfections() {
                 </div>
                 <div className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
                   <div className="flex items-start gap-3 flex-1">
-                    <div 
+                    <div
                       className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5 bg-gray-200"
                     />
                     <span className="text-gray-700 text-sm truncate min-w-0">

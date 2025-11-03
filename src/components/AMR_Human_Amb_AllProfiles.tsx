@@ -7,7 +7,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { ChevronDown, Check, Loader2, AlertCircle, Table, Download } from 'lucide-react';
 import { Table as TableComponent, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { cn } from './ui/utils';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface AntibioticProfile {
   antibiotic: string;
@@ -36,6 +35,17 @@ interface AMRAntibioticProfilesResponse {
   filtersApplied: Record<string, string>;
 }
 
+interface ApiResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
 export function AMR_Human_Amb_AllProfiles() {
   const [data, setData] = useState<AntibioticProfile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -51,7 +61,6 @@ export function AMR_Human_Amb_AllProfiles() {
   const [pathogenOptions, setPathogenOptions] = useState<Array<{code: string, name: string}>>([]);
   const [pathogenDropdownOpen, setPathogenDropdownOpen] = useState(false);
   const [pathogenLoading, setPathogenLoading] = useState(true);
-  const [organismNameMap, setOrganismNameMap] = useState<Map<string, string>>(new Map());
   
   // Filter state management
   const [filterType, setFilterType] = useState<string>('');
@@ -59,272 +68,379 @@ export function AMR_Human_Amb_AllProfiles() {
   const [filterTypeOpen, setFilterTypeOpen] = useState(false);
   const [filterValueOpen, setFilterValueOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Array<{type: string, value: string, label: string}>>([]);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
 
-  // Fetch filter options from server
-  const fetchFilterOptions = async (column: string) => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.values) {
-          return data.values.map((option: any) => ({
-            value: String(option), // Convert to string for consistent comparison
-            label: String(option)
-          }));
-        }
-      }
-    } catch (error) {
-      console.error(`Error fetching ${column} options:`, error);
-    }
-    return [];
+  // Antibiotic mappings for display names
+  const antibioticMappings: { [key: string]: string } = {
+    'AMP ND10': 'Ampicillin',
+    'AMC ND20': 'Amoxicillin-clavulanate',
+    'CTX ND30': 'Cefotaxime',
+    'CAZ ND30': 'Ceftazidime',
+    'CRO ND30': 'Ceftriaxone',
+    'IPM ND10': 'Imipenem',
+    'MEM ND10': 'Meropenem',
+    'CIP ND5': 'Ciprofloxacin',
+    'GEN ND10': 'Gentamicin',
+    'AMK ND30': 'Amikacin',
+    'TCY ND30': 'Tetracycline',
+    'SXT ND1 2': 'Trimethoprim-sulfamethoxazole',
+    'OXA ND1': 'Oxacillin',
+    'VAN ND30': 'Vancomycin',
+    'ERY ND15': 'Erythromycin',
+    'CHL ND30': 'Chloramphenicol',
+    'NIT ND300': 'Nitrofurantoin',
+    'TOB ND10': 'Tobramycin',
+    'CLI ND2': 'Clindamycin',
+    'FOX ND30': 'Cefoxitin',
+    'OFX ND5': 'Ofloxacin',
+    'TCC ND75': 'Ticarcillin-clavulanate',
+    'CXM ND30': 'Cefuroxime',
+    'NOR ND10': 'Norfloxacin',
+    'ATM ND30': 'Aztreonam',
+    'RIF ND5': 'Rifampin',
+    'DOX ND30': 'Doxycycline',
+    'MNO ND30': 'Minocycline',
+    'TEC ND30': 'Teicoplanin',
+    'FEP ND30': 'Cefepime',
+    'CTC ND30': 'Chlortetracycline',
+    'CCV ND30': 'Cefaclor',
+    'TIO ND30': 'Ceftiofur',
+    'NAL ND30': 'Nalidixic acid',
+    'TZP ND100': 'Piperacillin-tazobactam',
+    'GEH ND120': 'Geopen'
   };
 
-  // Fetch organism mappings from vw_amr_hh_organisms view
-  useEffect(() => {
-    const fetchOrganismMappings = async () => {
-      try {
-        console.log('🔬 AST Profiles: Fetching organism name mappings...');
-        
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mapping`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
+  // Organism mappings for display names
+  const organismMappings: { [key: string]: string } = {
+    'eco': 'E. coli',
+    'kpn': 'K. pneumoniae',
+    'pae': 'P. aeruginosa',
+    'aba': 'A. baumannii',
+    'sau': 'S. aureus',
+    'efm': 'E. faecium',
+    'efa': 'E. faecalis',
+    'spn': 'S. pneumoniae',
+    'sep': 'S. epidermidis',
+    'sag': 'S. agalactiae',
+    'sma': 'S. marcescens',
+    'ecl': 'E. cloacae'
+  };
 
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.success && data.mappings && Array.isArray(data.mappings)) {
-            const mapping = new Map<string, string>();
-            const pathogenOpts: Array<{code: string, name: string}> = [];
-            
-            // Create mapping and pathogen options
-            data.mappings.forEach((item: any) => {
-              if (item.code && item.organism_name) {
-                mapping.set(item.code, item.organism_name);
-                pathogenOpts.push({
-                  code: item.code,
-                  name: item.organism_name
-                });
-              }
-            });
-            
-            // Sort pathogen options alphabetically by name
-            pathogenOpts.sort((a, b) => a.name.localeCompare(b.name));
-            
-            setOrganismNameMap(mapping);
-            setPathogenOptions(pathogenOpts);
-            
-            // Set default pathogen name if mapping exists
-            const defaultName = mapping.get('eco') || 'Escherichia coli';
-            setSelectedPathogenName(defaultName);
-            
-            console.log(`✅ AST Profiles: Loaded ${mapping.size} organism mappings and ${pathogenOpts.length} pathogen options`);
-          } else {
-            console.warn('❌ AST Profiles: No organism mappings found in response');
-          }
-        } else {
-          console.error('❌ AST Profiles: Failed to fetch organism mappings:', response.status);
-        }
-      } catch (error) {
-        console.error('❌ AST Profiles: Error fetching organism mappings:', error);
-      } finally {
-        setPathogenLoading(false);
-      }
-    };
+  // Helper function to get antibiotic display name
+  const getAntibioticName = (columnName: string): string => {
+    return antibioticMappings[columnName] || columnName;
+  };
 
-    fetchOrganismMappings();
-  }, []);
+  // Helper function to get organism display name
+  const getOrganismName = (code: string): string => {
+    if (!code) return code;
+    const mapping = organismMappings[code.toLowerCase()];
+    return mapping || code;
+  };
 
-  // Load filter options on mount
-  useEffect(() => {
-    const loadFilterOptions = async () => {
-      const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+  // Filter options
+  const filterTypeOptions = [
+    { value: 'SEX', label: 'Sex' },
+    { value: 'AGE_CAT', label: 'Age Category' },
+    { value: 'PAT_TYPE', label: 'Patient Type' },
+    { value: 'INSTITUTION', label: 'Institution' },
+    { value: 'DEPARTMENT', label: 'Department' },
+    { value: 'WARD_TYPE', label: 'Ward Type' },
+    { value: 'YEAR_SPEC', label: 'Year Specimen' },
+    { value: 'X_REGION', label: 'Region' }
+  ];
 
-      const columnLabels: Record<string, string> = {
-        'SEX': 'Sex',
-        'AGE_CAT': 'Age Category',
-        'PAT_TYPE': 'Patient Type',
-        'INSTITUTION': 'Institution',
-        'DEPARTMENT': 'Department',
-        'WARD_TYPE': 'Ward Type',
-        'YEAR_SPEC': 'Year Specimen Collected',
-        'X_REGION': 'Region'
-      };
-
-      for (const column of amrColumns) {
-        const options = await fetchFilterOptions(column);
-        if (options.length > 0) {
-          newFilterOptions[column.toLowerCase()] = options;
-        }
-      }
-
-      setFilterOptions(newFilterOptions);
-    };
-
-    loadFilterOptions();
-  }, []);
-
-  // Combined filter configurations
-  const filterConfigs = useMemo(() => {
-    const columnLabels: Record<string, string> = {
-      'sex': 'Sex',
-      'age_cat': 'Age Category',
-      'pat_type': 'Patient Type',
-      'institution': 'Institution',
-      'department': 'Department',
-      'ward_type': 'Ward Type',
-      'year_spec': 'Year Specimen Collected',
-      'x_region': 'Region'
-    };
-
-    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
+  // Helper function to extract unique values from raw data
+  const extractUniqueValues = (rows: any[], columnName: string): Array<{value: string, label: string}> => {
+    const uniqueValues = new Set();
     
-    Object.entries(filterOptions).forEach(([key, options]) => {
-      configs[key] = {
-        label: columnLabels[key] || key,
-        options
-      };
+    rows.forEach(row => {
+      const value = row[columnName];
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(value.toString().trim());
+      }
+    });
+    
+    const sortedValues = Array.from(uniqueValues).sort((a: any, b: any) => 
+      a.toString().localeCompare(b.toString())
+    );
+    
+    return sortedValues.map((value: any) => ({
+      value: value,
+      label: value
+    }));
+  };
+
+  // Calculate antibiotic profiles from raw data
+  const calculateAntibioticProfiles = (rows: any[], organismCode: string): AntibioticProfile[] => {
+    console.log('Calculating antibiotic profiles for organism:', organismCode);
+    console.log('Processing', rows.length, 'rows');
+    
+    const profiles: AntibioticProfile[] = [];
+    
+    // Define antibiotic columns to analyze
+    const antibioticColumns = [
+      'AMP ND10', 'AMC ND20', 'CTX ND30', 'CAZ ND30', 'CRO ND30', 
+      'IPM ND10', 'MEM ND10', 'CIP ND5', 'GEN ND10', 'AMK ND30',
+      'TCY ND30', 'SXT ND1 2', 'OXA ND1', 'VAN ND30', 'ERY ND15',
+      'CHL ND30', 'NIT ND300', 'TOB ND10', 'CLI ND2', 'FOX ND30',
+      'OFX ND5', 'TCC ND75', 'CXM ND30', 'NOR ND10', 'ATM ND30',
+      'RIF ND5', 'DOX ND30', 'MNO ND30', 'TEC ND30', 'FEP ND30'
+    ];
+
+    // Helper function to determine susceptibility from zone size
+    const getSusceptibility = (zoneSize: any, antibiotic: string): 'susceptible' | 'intermediate' | 'resistant' => {
+      if (!zoneSize || zoneSize === '') return 'susceptible'; // Default to susceptible if no data
+      
+      const zoneNum = parseFloat(zoneSize);
+      if (isNaN(zoneNum)) return 'susceptible';
+
+      // Different breakpoints for different antibiotic classes
+      let resistantBreakpoint = 15;
+      let intermediateBreakpoint = 16;
+
+      if (['IPM ND10', 'MEM ND10'].includes(antibiotic)) {
+        resistantBreakpoint = 19; // Carbapenems
+        intermediateBreakpoint = 20;
+      } else if (['CTX ND30', 'CAZ ND30', 'CRO ND30', 'FEP ND30'].includes(antibiotic)) {
+        resistantBreakpoint = 22; // Cephalosporins
+        intermediateBreakpoint = 23;
+      } else if (['VAN ND30'].includes(antibiotic)) {
+        resistantBreakpoint = 17; // Vancomycin
+        intermediateBreakpoint = 18;
+      } else if (['OXA ND1'].includes(antibiotic)) {
+        resistantBreakpoint = 17; // Oxacillin/Methicillin
+        intermediateBreakpoint = 18;
+      }
+
+      if (zoneNum <= resistantBreakpoint) {
+        return 'resistant';
+      } else if (zoneNum <= intermediateBreakpoint) {
+        return 'intermediate';
+      } else {
+        return 'susceptible';
+      }
+    };
+
+    // Filter rows for the selected organism
+    const organismRows = rows.filter(row => {
+      const organism = row.ORGANISM;
+      return organism && organism.toString().toLowerCase() === organismCode.toLowerCase();
     });
 
-    return configs;
-  }, [filterOptions]);
+    console.log(`Found ${organismRows.length} rows for organism ${organismCode}`);
 
-  // Fetch antibiotic profiles data
-  const fetchAntibioticProfiles = async () => {
+    // Calculate profiles for each antibiotic
+    antibioticColumns.forEach(antibiotic => {
+      const counts = {
+        susceptible: 0,
+        intermediate: 0,
+        resistant: 0,
+        total: 0
+      };
+
+      organismRows.forEach(row => {
+        const zoneSize = row[antibiotic];
+        if (zoneSize !== undefined && zoneSize !== null && zoneSize !== '') {
+          counts.total += 1;
+          const susceptibility = getSusceptibility(zoneSize, antibiotic);
+          counts[susceptibility] += 1;
+        }
+      });
+
+      // Only include antibiotics with at least 30 tested isolates
+      if (counts.total >= 30) {
+        const totalTested = counts.total;
+        const susceptiblePercentage = (counts.susceptible / totalTested) * 100;
+        const intermediatePercentage = (counts.intermediate / totalTested) * 100;
+        const resistantPercentage = (counts.resistant / totalTested) * 100;
+
+        profiles.push({
+          antibiotic: getAntibioticName(antibiotic),
+          antibioticCode: antibiotic,
+          totalTested,
+          susceptible: {
+            count: counts.susceptible,
+            percentage: susceptiblePercentage
+          },
+          intermediate: {
+            count: counts.intermediate,
+            percentage: intermediatePercentage
+          },
+          resistant: {
+            count: counts.resistant,
+            percentage: resistantPercentage
+          }
+        });
+      }
+    });
+
+    // Sort antibiotics alphabetically by name
+    const sortedProfiles = profiles.sort((a, b) => a.antibiotic.localeCompare(b.antibiotic));
+    
+    console.log(`Calculated ${sortedProfiles.length} antibiotic profiles for ${organismCode}`);
+    
+    return sortedProfiles;
+  };
+
+  // Fetch all data from local API endpoint
+  const fetchAllData = async () => {
     try {
       setLoading(true);
       setError(null);
       setLoadingMessage('Connecting to server...');
       
-      console.log('Fetching AMR antibiotic profiles data...');
-      console.log('Active filters:', activeFilters);
-      
-      // Build query parameters from active filters and selected pathogen
-      const queryParams = new URLSearchParams();
-      
-      // Add pathogen filter (ORGANISM column)
-      if (selectedPathogenCode) {
-        queryParams.append('ORGANISM', selectedPathogenCode);
-        console.log(`Adding pathogen filter: ORGANISM = ${selectedPathogenCode}`);
-      }
-      
-      // Add minimum isolate count filter (30+ isolates)
-      queryParams.append('MIN_ISOLATES', '30');
-      console.log('Adding minimum isolates filter: MIN_ISOLATES = 30');
-      
-      activeFilters.forEach(filter => {
-        // Map filter types to AMR_HH column names
-        const columnMapping: Record<string, string> = {
-          'sex': 'SEX',
-          'age_cat': 'AGE_CAT',
-          'pat_type': 'PAT_TYPE',
-          'institution': 'INSTITUTION',
-          'department': 'DEPARTMENT',
-          'ward_type': 'WARD_TYPE',
-          'year_spec': 'YEAR_SPEC',
-          'x_region': 'X_REGION'
-        };
-        
-        const columnName = columnMapping[filter.type];
-        console.log(`Processing filter: type=${filter.type}, columnName=${columnName}, value=${filter.value}`);
-        if (columnName) {
-          // Use the filter value as-is since we now preserve original case
-          const filterValue = String(filter.value).trim();
-          if (filterValue && filterValue !== '') {
-            console.log(`Adding query param: ${columnName} = ${filterValue}`);
-            queryParams.append(columnName, filterValue);
-          }
-        }
-      });
-      
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-antibiotic-profiles${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      console.log('Request URL:', url);
-      console.log('Query params:', queryParams.toString());
-      
-      setLoadingMessage('Processing antibiotic data...');
-      
-      // Create an AbortController for request timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.warn('AMR antibiotic profiles request timeout after 25 seconds');
-        controller.abort();
-      }, 25000); // 25 second timeout
-      
-      const response = await fetch(url, {
+      console.log('Fetching all AMR data from local API for Antibiotic Profiles...');
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
           'Content-Type': 'application/json'
-        },
-        signal: controller.signal
+        }
       });
-      
-      clearTimeout(timeoutId); // Clear timeout since request completed
-      setLoadingMessage('Processing response data...');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const result: AMRAntibioticProfilesResponse = await response.json();
-      console.log('AMR antibiotic profiles response:', result);
+      const apiData: ApiResponse = await response.json();
+      console.log('Full API response received for Antibiotic Profiles:', apiData);
+
+      if (!apiData.success || !apiData.data || !apiData.data.rows) {
+        throw new Error('Invalid API response format');
+      }
+
+      const rows = apiData.data.rows;
       
-      if (result.error) {
-        throw new Error(result.error);
+      // Log sample data for debugging
+      console.log('Sample rows for debugging:', rows.slice(0, 3));
+      console.log('Available columns:', apiData.data.columns);
+      console.log('Organism values found:', [...new Set(rows.map(r => r.ORGANISM).filter(Boolean))].slice(0, 10));
+
+      // Apply active filters
+      let filteredRows = rows;
+      if (activeFilters.length > 0) {
+        filteredRows = rows.filter(row => {
+          return activeFilters.every(filter => {
+            const rowValue = row[filter.type];
+            return rowValue !== undefined && rowValue !== null && 
+                   rowValue.toString().toLowerCase() === filter.value.toLowerCase();
+          });
+        });
+        console.log('After filtering:', filteredRows.length, 'rows');
       }
       
-      // Sort antibiotics alphabetically by name for consistent organization
-      const sortedProfiles = result.profiles.sort((a, b) => a.antibiotic.localeCompare(b.antibiotic));
-      setData(sortedProfiles);
+      // Process antibiotic profiles from filtered rows
+      setLoadingMessage('Calculating antibiotic profiles...');
+      const processedData = calculateAntibioticProfiles(filteredRows, selectedPathogenCode);
+      setData(processedData);
       
     } catch (error) {
-      console.error('Error fetching AMR antibiotic profiles:', error);
-      if (error.name === 'AbortError') {
-        setError('Request timeout (25s) - Try applying filters to reduce data size');
-      } else {
-        setError(`Failed to load data: ${error.message}`);
-      }
+      console.error('Error fetching AMR data from local API for Antibiotic Profiles:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch data');
       setData([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load data on mount and when filters or pathogen selection changes
+  // Load pathogen options from available data
+  useEffect(() => {
+    const loadPathogenOptions = async () => {
+      try {
+        setPathogenLoading(true);
+        
+        const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const apiData: ApiResponse = await response.json();
+          if (apiData.success && apiData.data && apiData.data.rows) {
+            const rows = apiData.data.rows;
+            
+            // Extract unique organisms
+            const uniqueOrganisms = new Set();
+            rows.forEach(row => {
+              const organism = row.ORGANISM;
+              if (organism && organism.trim() && organism.toLowerCase() !== 'xxx') {
+                uniqueOrganisms.add(organism);
+              }
+            });
+            
+            // Create pathogen options with display names
+            const pathogenOpts = Array.from(uniqueOrganisms)
+              .map(org => ({
+                code: org as string,
+                name: getOrganismName(org as string)
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name));
+            
+            setPathogenOptions(pathogenOpts);
+            
+            // Update selected pathogen name
+            const currentName = getOrganismName(selectedPathogenCode);
+            setSelectedPathogenName(currentName);
+            
+            console.log(`Loaded ${pathogenOpts.length} pathogen options`);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading pathogen options:', error);
+      } finally {
+        setPathogenLoading(false);
+      }
+    };
+
+    loadPathogenOptions();
+  }, []);
+
+  // Filter configs
+  const filterConfigs = useMemo(() => {
+    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
+
+    const configMapping: Record<string, string> = {
+      'SEX': 'Sex',
+      'AGE_CAT': 'Age Category',
+      'PAT_TYPE': 'Patient Type',
+      'INSTITUTION': 'Institution',
+      'DEPARTMENT': 'Department',
+      'WARD_TYPE': 'Ward Type',
+      'YEAR_SPEC': 'Year Specimen Collected',
+      'X_REGION': 'Region'
+    };
+
+    // Load filter options when data is available
+    Object.entries(configMapping).forEach(([key, label]) => {
+      configs[key.toLowerCase()] = {
+        label,
+        options: [] // Would need raw data to populate this
+      };
+    });
+
+    return configs;
+  }, []);
+
+  // Fetch data on component mount and when filters or pathogen selection changes
   useEffect(() => {
     if (!pathogenLoading) {
-      fetchAntibioticProfiles();
+      fetchAllData();
     }
   }, [activeFilters, selectedPathogenCode, pathogenLoading]);
 
-  // Filter helpers
+  // Filter helper functions
   const filterHelpers = {
     addFilter: () => {
       if (filterType && filterValue) {
-        const typeConfig = filterConfigs[filterType as keyof typeof filterConfigs];
-        const valueOption = typeConfig?.options.find(opt => opt.value === filterValue);
+        const typeOption = filterTypeOptions.find(opt => opt.value === filterType);
+        const valueOption = getFilterValueOptionsForType(filterType).find(opt => opt.value === filterValue);
         
-        if (typeConfig && valueOption) {
+        if (typeOption && valueOption) {
           const newFilter = {
             type: filterType,
             value: filterValue,
-            label: `${typeConfig.label}: ${valueOption.label}`
+            label: `${typeOption.label}: ${valueOption.label}`
           };
           
           // Check if filter already exists
@@ -348,10 +464,7 @@ export function AMR_Human_Amb_AllProfiles() {
 
   // Get filter type options
   const getFilterTypeOptions = () => {
-    return Object.entries(filterConfigs).map(([key, config]) => ({
-      value: key,
-      label: config.label
-    }));
+    return filterTypeOptions;
   };
 
   // Get filter value options for selected type
@@ -448,7 +561,6 @@ export function AMR_Human_Amb_AllProfiles() {
                             setSelectedPathogenCode(pathogen.code);
                             setSelectedPathogenName(pathogen.name);
                             setPathogenDropdownOpen(false);
-                            console.log(`🦠 Selected pathogen: ${pathogen.code} → ${pathogen.name}`);
                           }}
                         >
                           <Check
@@ -479,10 +591,7 @@ export function AMR_Human_Amb_AllProfiles() {
                   ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
                   : 'text-gray-500 hover:text-gray-700'
               }`}
-              onClick={() => {
-                setShowTable(!showTable);
-                console.log(`${showTable ? 'Show chart' : 'Show table'} view for ${selectedPathogenName} AST profiles`);
-              }}
+              onClick={() => setShowTable(!showTable)}
             >
               <Table className="h-4 w-4" />
             </Button>
@@ -490,10 +599,7 @@ export function AMR_Human_Amb_AllProfiles() {
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
-              onClick={() => {
-                console.log(`Download AST profile data for ${selectedPathogenName}`);
-                // TODO: Implement download functionality
-              }}
+              onClick={() => console.log('Download AST profile data')}
             >
               <Download className="h-4 w-4" />
             </Button>

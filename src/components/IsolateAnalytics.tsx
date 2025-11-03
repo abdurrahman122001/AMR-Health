@@ -50,12 +50,12 @@ const COLOR_PALETTES = {
 // Function to get organism scientific abbreviation following standard convention
 const getOrganismAbbreviation = (fullName: string): string => {
   const normalizedName = fullName.trim();
-  
+
   // Common organism abbreviations following scientific convention
   const organismMap: { [key: string]: string } = {
     'Escherichia coli': 'E. coli',
     'Staphylococcus aureus': 'S. aureus',
-    'Klebsiella pneumoniae': 'K. pneumoniae', 
+    'Klebsiella pneumoniae': 'K. pneumoniae',
     'Pseudomonas aeruginosa': 'P. aeruginosa',
     'Enterococcus faecalis': 'E. faecalis',
     'Enterococcus faecium': 'E. faecium',
@@ -216,21 +216,21 @@ const IsolateTooltip = ({ active, payload }: any) => {
 export function IsolateAnalytics() {
   // Category selection state management
   const [selectedCategory, setSelectedCategory] = useState('organism'); // Default to organism
-  
+
   // View mode state management
   const [showTable, setShowTable] = useState(false);
-  
+
   // Filter state management
   const [filterType, setFilterType] = useState<string>('');
   const [filterValue, setFilterValue] = useState<string>('');
   const [activeFilters, setActiveFilters] = useState<Filter[]>([]);
-  
+
   // Data state management
   const [distributionData, setDistributionData] = useState<DistributionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalRecords, setTotalRecords] = useState(0);
-  
+
   // Dynamic filter value management
   const [filterValueCache, setFilterValueCache] = useState<Record<string, FilterValueOption[]>>({});
   const [loadingFilterValues, setLoadingFilterValues] = useState<Record<string, boolean>>({});
@@ -250,22 +250,20 @@ export function IsolateAnalytics() {
       setFilterValueErrors(prev => ({ ...prev, [columnName]: '' }));
 
       console.log(`Fetching unique values for column: ${columnName}`);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${columnName.toUpperCase()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
@@ -286,7 +284,7 @@ export function IsolateAnalytics() {
 
       // Cache the results
       setFilterValueCache(prev => ({ ...prev, [columnName]: options }));
-      
+
       return options;
     } catch (err) {
       console.error(`Error fetching filter values for ${columnName}:`, err);
@@ -314,22 +312,22 @@ export function IsolateAnalytics() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Build query parameters
       const queryParams = new URLSearchParams();
       queryParams.append('column', currentCategory.column);
-      
+
       // Add all dynamic filters - convert to uppercase to match AMR_HH column names
       activeFilters.forEach(filter => {
         queryParams.append(filter.type.toUpperCase(), filter.value);
       });
-      
+
       console.log('🔍 Isolate Distribution Query Debug:');
       console.log('  - Column:', currentCategory.column);
       console.log('  - Active filters count:', activeFilters.length);
       console.log('  - Query params string:', queryParams.toString());
       console.log('  - Active filters details:', activeFilters);
-      
+
       // Debug filter parameter format
       if (activeFilters.length > 0) {
         console.log('  - Filter parameters sent to server:');
@@ -337,15 +335,13 @@ export function IsolateAnalytics() {
           console.log(`    ${filter.type.toUpperCase()}: ${filter.value}`);
         });
       }
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-distribution-analysis?${queryParams.toString()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       const result = await response.json();
@@ -368,7 +364,7 @@ export function IsolateAnalytics() {
         percentage: item.percentage,
         color: currentCategory.palette[index % currentCategory.palette.length]
       }));
-      
+
       // Log organism name mapping status
       if (currentCategory.column === 'ORGANISM' && result.organismNameMapping) {
         console.log(`✅ Organism name mapping applied successfully: ${result.organismMappingsCount} mappings used`);
@@ -402,24 +398,24 @@ export function IsolateAnalytics() {
       if (filterType && filterValue) {
         const typeOption = filterTypeOptions.find(opt => opt.value === filterType);
         const valueOption = getFilterValueOptions(filterType).find(opt => opt.value === filterValue);
-        
+
         if (typeOption && valueOption) {
           const newFilter: Filter = {
             type: filterType,
             value: filterValue,
             label: `${typeOption.label}: ${valueOption.label}`
           };
-          
+
           // Avoid duplicate filters
           const isDuplicate = activeFilters.some(
             filter => filter.type === newFilter.type && filter.value === newFilter.value
           );
-          
+
           if (!isDuplicate) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         // Reset form
         setFilterType('');
         setFilterValue('');
@@ -439,252 +435,197 @@ export function IsolateAnalytics() {
     <div className="space-y-6">
       {/* Pathogen Resistance Profiles */}
       <AMR_Human_Pathogen_RProfile />
-      
+
       {/* Isolate Distribution Analysis */}
       <Card className="border border-gray-200">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-medium">
-            {currentCategory.title} - Specimen Distribution Analysis
-          </CardTitle>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-8 w-8 px-[5px] py-[0px] ${ 
-                showTable 
-                  ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-medium">
+              {currentCategory.title} - Specimen Distribution Analysis
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-8 w-8 px-[5px] py-[0px] ${showTable
+                  ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100'
                   : 'text-gray-500 hover:text-gray-700'
-              }`}
-              onClick={() => {
-                setShowTable(!showTable);
-                console.log(`${showTable ? 'Show chart' : 'Show table'} view for ${currentCategory.title} data`);
-              }}
-            >
-              <Table className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
-              onClick={() => {
-                console.log(`Download ${currentCategory.title} chart data`);
-                // TODO: Implement download functionality
-              }}
-            >
-              <Download className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-600 m-[0px]">
-            {currentCategory.description} • 
-            {activeFilters.length > 0 ? (
-              <span className="font-medium text-blue-600 ml-1"> 
-                Filtered ({activeFilters.length} filter{activeFilters.length === 1 ? '' : 's'}): {totalRecords.toLocaleString()} records
-              </span>
-            ) : (
-              <span className="text-gray-700 ml-1"> Total: {totalRecords.toLocaleString()} records</span>
-            )}
-
-            {loading && (
-              <span className="ml-2 text-gray-500 italic">
-                (Updating...)
-              </span>
-            )}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Category:</span>
-            <div className="w-40">
-              <SearchableSelect
-                value={selectedCategory}
-                onValueChange={setSelectedCategory}
-                options={[
-                  { value: 'organism', label: 'Organism' },
-                  { value: 'org_type', label: 'Organism Type' },
-                  { value: 'sex', label: 'Sex' },
-                  { value: 'age_cat', label: 'Age' },
-                  { value: 'institution', label: 'Institution' },
-                  { value: 'spec_type', label: 'Specimen' },
-                  { value: 'ward', label: 'Ward' },
-                  { value: 'ward_type', label: 'Ward Type' },
-                  { value: 'pat_type', label: 'Patient Type' },
-                  { value: 'year_spec', label: 'Year' }
-                ]}
-                placeholder="Select category..."
-                className="w-full text-sm"
-              />
-            </div>
-          </div>
-        </div>
-        
-        {/* Filter Tool */}
-        <div className="mt-4 bg-gray-50 rounded-lg p-4 border">
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0">
-              <TooltipComponent>
-                <TooltipTrigger asChild>
-                  <h3 className="font-semibold text-gray-900 text-sm cursor-help">Filter Isolate Data:</h3>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Dynamic filters from AMR_HH table columns</p>
-                </TooltipContent>
-              </TooltipComponent>
-            </div>
-            
-            {/* Filter Type */}
-            <div className="flex-1">
-              <SearchableSelect
-                value={filterType}
-                onValueChange={setFilterType}
-                options={filterTypeOptions}
-                placeholder="Search filter type..."
-                className="w-full text-sm"
-              />
-            </div>
-
-            {/* Filter Value */}
-            <div className="flex-1">
-              <SearchableSelect
-                value={filterValue}
-                onValueChange={setFilterValue}
-                options={getFilterValueOptions(filterType)}
-                disabled={!filterType || loadingFilterValues[filterType]}
-                placeholder={
-                  !filterType ? "Select type first" :
-                  loadingFilterValues[filterType] ? "Loading values..." :
-                  filterValueErrors[filterType] ? "Error loading values" :
-                  "Search value..."
-                }
-                className="w-full text-sm"
-              />
-            </div>
-
-            {/* Add Filter Button */}
-            <button
-              onClick={filterHelpers.addFilter}
-              disabled={!filterType || !filterValue || loadingFilterValues[filterType] || filterValueErrors[filterType]}
-              className="px-4 py-2 bg-gray-600 text-white rounded text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors whitespace-nowrap"
-            >
-              Add Filter
-            </button>
-          </div>
-        </div>
-        
-        {/* Active Filters Display */}
-        {activeFilters.length > 0 && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-gray-700">
-                Active Filters ({activeFilters.length})
-              </span>
-              <button
-                onClick={filterHelpers.clearAllFilters}
-                className="text-sm text-blue-600 hover:text-blue-800 underline"
+                  }`}
+                onClick={() => {
+                  setShowTable(!showTable);
+                  console.log(`${showTable ? 'Show chart' : 'Show table'} view for ${currentCategory.title} data`);
+                }}
               >
-                Clear All
+                <Table className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
+                onClick={() => {
+                  console.log(`Download ${currentCategory.title} chart data`);
+                  // TODO: Implement download functionality
+                }}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600 m-[0px]">
+              {currentCategory.description} •
+              {activeFilters.length > 0 ? (
+                <span className="font-medium text-blue-600 ml-1">
+                  Filtered ({activeFilters.length} filter{activeFilters.length === 1 ? '' : 's'}): {totalRecords.toLocaleString()} records
+                </span>
+              ) : (
+                <span className="text-gray-700 ml-1"> Total: {totalRecords.toLocaleString()} records</span>
+              )}
+
+              {loading && (
+                <span className="ml-2 text-gray-500 italic">
+                  (Updating...)
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Category:</span>
+              <div className="w-40">
+                <SearchableSelect
+                  value={selectedCategory}
+                  onValueChange={setSelectedCategory}
+                  options={[
+                    { value: 'organism', label: 'Organism' },
+                    { value: 'org_type', label: 'Organism Type' },
+                    { value: 'sex', label: 'Sex' },
+                    { value: 'age_cat', label: 'Age' },
+                    { value: 'institution', label: 'Institution' },
+                    { value: 'spec_type', label: 'Specimen' },
+                    { value: 'ward', label: 'Ward' },
+                    { value: 'ward_type', label: 'Ward Type' },
+                    { value: 'pat_type', label: 'Patient Type' },
+                    { value: 'year_spec', label: 'Year' }
+                  ]}
+                  placeholder="Select category..."
+                  className="w-full text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Filter Tool */}
+          <div className="mt-4 bg-gray-50 rounded-lg p-4 border">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0">
+                <TooltipComponent>
+                  <TooltipTrigger asChild>
+                    <h3 className="font-semibold text-gray-900 text-sm cursor-help">Filter Isolate Data:</h3>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Dynamic filters from AMR_HH table columns</p>
+                  </TooltipContent>
+                </TooltipComponent>
+              </div>
+
+              {/* Filter Type */}
+              <div className="flex-1">
+                <SearchableSelect
+                  value={filterType}
+                  onValueChange={setFilterType}
+                  options={filterTypeOptions}
+                  placeholder="Search filter type..."
+                  className="w-full text-sm"
+                />
+              </div>
+
+              {/* Filter Value */}
+              <div className="flex-1">
+                <SearchableSelect
+                  value={filterValue}
+                  onValueChange={setFilterValue}
+                  options={getFilterValueOptions(filterType)}
+                  disabled={!filterType || loadingFilterValues[filterType]}
+                  placeholder={
+                    !filterType ? "Select type first" :
+                      loadingFilterValues[filterType] ? "Loading values..." :
+                        filterValueErrors[filterType] ? "Error loading values" :
+                          "Search value..."
+                  }
+                  className="w-full text-sm"
+                />
+              </div>
+
+              {/* Add Filter Button */}
+              <button
+                onClick={filterHelpers.addFilter}
+                disabled={!filterType || !filterValue || loadingFilterValues[filterType] || filterValueErrors[filterType]}
+                className="px-4 py-2 bg-gray-600 text-white rounded text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors whitespace-nowrap"
+              >
+                Add Filter
               </button>
             </div>
+          </div>
 
-            {/* Filter Tags */}
-            <div className="flex flex-wrap gap-2">
-              {activeFilters.map((filter, index) => (
-                <div
-                  key={index}
-                  className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full text-xs font-medium"
+          {/* Active Filters Display */}
+          {activeFilters.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-gray-700">
+                  Active Filters ({activeFilters.length})
+                </span>
+                <button
+                  onClick={filterHelpers.clearAllFilters}
+                  className="text-sm text-blue-600 hover:text-blue-800 underline"
                 >
-                  <span>{filter.label}</span>
-                  <button
-                    onClick={() => filterHelpers.removeFilter(index)}
-                    className="text-gray-600 hover:text-gray-800 transition-colors"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardHeader>
+                  Clear All
+                </button>
+              </div>
 
-      <CardContent className="pt-[0px] pr-[24px] pb-[35px] pl-[24px]">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-700 text-sm">
-              <strong>⚠️ Data Error:</strong> {error}
-            </p>
-            <p className="text-red-600 text-xs mt-1">
-              Unable to load isolate distribution data from AMR_HH table. Please check your connection and try again.
-            </p>
-          </div>
-        )}
-        
-        {showTable ? (
-          /* Table View */
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="font-medium">
-                {currentCategory.title} Distribution Data Table
-              </h4>
-              <span className="text-sm text-gray-500">
-                Showing all {distributionData.length} {currentCategory.title.toLowerCase()} entries
-              </span>
+              {/* Filter Tags */}
+              <div className="flex flex-wrap gap-2">
+                {activeFilters.map((filter, index) => (
+                  <div
+                    key={index}
+                    className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full text-xs font-medium"
+                  >
+                    <span>{filter.label}</span>
+                    <button
+                      onClick={() => filterHelpers.removeFilter(index)}
+                      className="text-gray-600 hover:text-gray-800 transition-colors"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-            
-            {loading ? (
-              <div className="flex items-center justify-center h-[400px]">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                  <p className="text-gray-600">Loading {currentCategory.title.toLowerCase()} distribution...</p>
-                </div>
+          )}
+        </CardHeader>
+
+        <CardContent className="pt-[0px] pr-[24px] pb-[35px] pl-[24px]">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-700 text-sm">
+                <strong>⚠️ Data Error:</strong> {error}
+              </p>
+              <p className="text-red-600 text-xs mt-1">
+                Unable to load isolate distribution data from AMR_HH table. Please check your connection and try again.
+              </p>
+            </div>
+          )}
+
+          {showTable ? (
+            /* Table View */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium">
+                  {currentCategory.title} Distribution Data Table
+                </h4>
+                <span className="text-sm text-gray-500">
+                  Showing all {distributionData.length} {currentCategory.title.toLowerCase()} entries
+                </span>
               </div>
-            ) : (
-              <div className="border rounded-lg">
-                <TableComponent>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-16">#</TableHead>
-                      <TableHead className="flex-1">Category</TableHead>
-                      <TableHead className="w-24 text-right">Count</TableHead>
-                      <TableHead className="w-24 text-right">Percentage</TableHead>
-                      <TableHead className="w-16"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {distributionData.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium text-gray-500">
-                          {index + 1}
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-md">
-                            {item.name}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {item.value.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {item.percentage.toFixed(1)}%
-                        </TableCell>
-                        <TableCell>
-                          <div 
-                            className="w-4 h-4 rounded-full"
-                            style={{ backgroundColor: item.color }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </TableComponent>
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Chart View */
-          <div className="flex gap-6">
-            {/* Main Chart Area */}
-            <div className="flex-1">
+
               {loading ? (
                 <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">
@@ -693,90 +634,144 @@ export function IsolateAnalytics() {
                   </div>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={400}>
-                  <PieChart>
-                    <Pie
-                      data={distributionData}
-                      cx="40%"
-                      cy="50%"
-                      labelLine={false}
-                      outerRadius={180}
-                      innerRadius={100}
-                      fill="#8884d8"
-                      dataKey="percentage"
-                      stroke="#fff"
-                      strokeWidth={1}
-                    >
-                      {distributionData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                <div className="border rounded-lg">
+                  <TableComponent>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-16">#</TableHead>
+                        <TableHead className="flex-1">Category</TableHead>
+                        <TableHead className="w-24 text-right">Count</TableHead>
+                        <TableHead className="w-24 text-right">Percentage</TableHead>
+                        <TableHead className="w-16"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {distributionData.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium text-gray-500">
+                            {index + 1}
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-md">
+                              {item.name}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {item.value.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {item.percentage.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            <div
+                              className="w-4 h-4 rounded-full"
+                              style={{ backgroundColor: item.color }}
+                            />
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </Pie>
-                    <text x="40%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-sm font-medium fill-gray-700">
-                      {currentCategory.title}
-                    </text>
-                    <Tooltip content={<IsolateTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
+                    </TableBody>
+                  </TableComponent>
+                </div>
               )}
             </div>
-
-            {/* Legend */}
-            <div className="lg:col-span-2 space-y-2 my-[25px] mx-[0px] mt-[25px] mr-[0px] mb-[20px] ml-[0px] px-[0px] py-[5px]">
-              <h4 className="font-medium mb-4 text-[14px]">
-                {currentCategory.title} Categories
-                <span className="text-sm font-normal text-gray-500 ml-2">
-                  (Top 10 shown)
-                </span>
-              </h4>
-              {loading ? (
-                [1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
-                    <div className="flex items-start gap-3 flex-1">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5 bg-gray-200 animate-pulse" />
-                      <div className="h-4 bg-gray-200 rounded animate-pulse flex-1" />
-                    </div>
-                    <div className="text-right flex-shrink-0 ml-2">
-                      <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
+          ) : (
+            /* Chart View */
+            <div className="flex gap-6">
+              {/* Main Chart Area */}
+              <div className="flex-1">
+                {loading ? (
+                  <div className="flex items-center justify-center h-[400px]">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading {currentCategory.title.toLowerCase()} distribution...</p>
                     </div>
                   </div>
-                ))
-              ) : (
-                distributionData.slice(0, 10).map((item, index) => (
-                  <div key={index} className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
-                    <div className="flex items-start gap-3 flex-1">
-                      <div 
-                        className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="text-gray-700 text-sm truncate min-w-0 text-[13px]">
-                        {selectedCategory === 'organism' ? (
-                          // Display organism name (will be mapped from database view)
-                          item.name
-                        ) : (
-                          item.name
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-right flex-shrink-0 ml-2">
-                      <div className="text-sm font-semibold text-[13px]">
-                        {item.percentage.toFixed(1)}%
+                ) : (
+                  <ResponsiveContainer width="100%" height={400}>
+                    <PieChart>
+                      <Pie
+                        data={distributionData}
+                        cx="40%"
+                        cy="50%"
+                        labelLine={false}
+                        outerRadius={180}
+                        innerRadius={100}
+                        fill="#8884d8"
+                        dataKey="percentage"
+                        stroke="#fff"
+                        strokeWidth={1}
+                      >
+                        {distributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <text x="40%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-sm font-medium fill-gray-700">
+                        {currentCategory.title}
+                      </text>
+                      <Tooltip content={<IsolateTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Legend */}
+              <div className="lg:col-span-2 space-y-2 my-[25px] mx-[0px] mt-[25px] mr-[0px] mb-[20px] ml-[0px] px-[0px] py-[5px]">
+                <h4 className="font-medium mb-4 text-[14px]">
+                  {currentCategory.title} Categories
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    (Top 10 shown)
+                  </span>
+                </h4>
+                {loading ? (
+                  [1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5 bg-gray-200 animate-pulse" />
+                        <div className="h-4 bg-gray-200 rounded animate-pulse flex-1" />
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-2">
+                        <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
+                  ))
+                ) : (
+                  distributionData.slice(0, 10).map((item, index) => (
+                    <div key={index} className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className="text-gray-700 text-sm truncate min-w-0 text-[13px]">
+                          {selectedCategory === 'organism' ? (
+                            // Display organism name (will be mapped from database view)
+                            item.name
+                          ) : (
+                            item.name
+                          )}
+                        </span>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-2">
+                        <div className="text-sm font-semibold text-[13px]">
+                          {item.percentage.toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
+          )}
+
+          {/* Footer */}
+          <div className="mt-[30px] pt-4 border-t border-gray-200 mr-[0px] mb-[0px] ml-[0px]">
+            <p className="text-xs text-gray-500">
+              Isolate distribution analysis from AMR surveillance database. Showing {currentCategory.title.toLowerCase()} composition across {totalRecords.toLocaleString()} total isolates.
+            </p>
           </div>
-        )}
-        
-        {/* Footer */}
-        <div className="mt-[30px] pt-4 border-t border-gray-200 mr-[0px] mb-[0px] ml-[0px]">
-          <p className="text-xs text-gray-500">
-            Isolate distribution analysis from AMR surveillance database. Showing {currentCategory.title.toLowerCase()} composition across {totalRecords.toLocaleString()} total isolates.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     </div>
   );
 }

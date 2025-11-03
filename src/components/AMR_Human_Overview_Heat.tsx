@@ -221,9 +221,7 @@ export const AMR_Human_Overview_Heat = () => {
   };
 
   // Calculate heatmap data from raw rows
-  const calculateHeatmapData = (rows: any[]): HeatmapData => {
-    console.log('Calculating heatmap data from', rows.length, 'rows');
-    
+  const calculateHeatmapData = (rows: any[]): HeatmapData => {    
     const organisms = new Set<string>();
     const antibiotics = new Set<string>();
     const heatmapData: Record<string, Record<string, number>> = {};
@@ -316,13 +314,6 @@ export const AMR_Human_Overview_Heat = () => {
       timestamp: new Date().toISOString(),
       appliedFilters: activeFilters.map(f => [f.type, f.value])
     };
-
-    console.log('Heatmap data calculated:', {
-      organisms: result.organisms.length,
-      antibiotics: result.antibiotics.length,
-      totalRecords: result.totalRecords
-    });
-
     return result;
   };
 
@@ -332,8 +323,7 @@ export const AMR_Human_Overview_Heat = () => {
       setLoading(true);
       setError(null);
       
-      console.log('Fetching all AMR data from local API for Heatmap...');
-      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -345,19 +335,12 @@ export const AMR_Human_Overview_Heat = () => {
       }
       
       const apiData = await response.json();
-      console.log('Full API response received for Heatmap:', apiData);
-
       if (!apiData.success || !apiData.data || !apiData.data.rows) {
         throw new Error('Invalid API response format');
       }
 
       const rows = apiData.data.rows;
       
-      // Log sample data for debugging
-      console.log('Sample rows for debugging:', rows.slice(0, 3));
-      console.log('Available columns:', apiData.data.columns);
-      console.log('Organism values found:', [...new Set(rows.map(r => r.ORGANISM).filter(Boolean))].slice(0, 10));
-
       // Apply active filters
       let filteredRows = rows;
       if (activeFilters.length > 0) {
@@ -368,7 +351,6 @@ export const AMR_Human_Overview_Heat = () => {
                    rowValue.toString().toLowerCase() === filter.value.toLowerCase();
           });
         });
-        console.log('After filtering:', filteredRows.length, 'rows');
       }
       
       // Process heatmap data from filtered rows
@@ -576,7 +558,6 @@ export const AMR_Human_Overview_Heat = () => {
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
-              onClick={() => console.log('Download heatmap data')}
             >
               <Download className="h-4 w-4" />
             </Button>

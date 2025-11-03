@@ -44,48 +44,46 @@ export function AMR_Human_Amb_DisagProfiles() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>('Connecting to server...');
-  
+
   // View mode state
   const [showTable, setShowTable] = useState(false);
-  
+
   // Pathogen selection state
   const [selectedPathogenCode, setSelectedPathogenCode] = useState<string>('eco'); // Default to E. coli
   const [selectedPathogenName, setSelectedPathogenName] = useState<string>('Escherichia coli');
-  const [pathogenOptions, setPathogenOptions] = useState<Array<{code: string, name: string}>>([]);
+  const [pathogenOptions, setPathogenOptions] = useState<Array<{ code: string, name: string }>>([]);
   const [pathogenDropdownOpen, setPathogenDropdownOpen] = useState(false);
   const [pathogenLoading, setPathogenLoading] = useState(true);
   const [organismNameMap, setOrganismNameMap] = useState<Map<string, string>>(new Map());
-  
+
   // NEW: Antibiotic selection state
   const [selectedAntibioticCode, setSelectedAntibioticCode] = useState<string>('CRO'); // Default to Ceftriaxone
   const [selectedAntibioticName, setSelectedAntibioticName] = useState<string>('Ceftriaxone');
-  const [antibioticOptions, setAntibioticOptions] = useState<Array<{code: string, name: string}>>([]);
+  const [antibioticOptions, setAntibioticOptions] = useState<Array<{ code: string, name: string }>>([]);
   const [antibioticDropdownOpen, setAntibioticDropdownOpen] = useState(false);
   const [antibioticLoading, setAntibioticLoading] = useState(true);
-  
+
   // NEW: View By category state (for disaggregation)
   const [viewByCategory, setViewByCategory] = useState<string>('INSTITUTION'); // Default to Institution
   const [viewByCategoryOpen, setViewByCategoryOpen] = useState(false);
-  
+
   // Filter state management
   const [filterType, setFilterType] = useState<string>('');
   const [filterValue, setFilterValue] = useState<string>('');
   const [filterTypeOpen, setFilterTypeOpen] = useState(false);
   const [filterValueOpen, setFilterValueOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Array<{type: string, value: string, label: string}>>([]);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
+  const [activeFilters, setActiveFilters] = useState<Array<{ type: string, value: string, label: string }>>([]);
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string, label: string }>>>({});
 
   // Fetch filter options from server
   const fetchFilterOptions = async (column: string) => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (response.ok) {
@@ -108,24 +106,22 @@ export function AMR_Human_Amb_DisagProfiles() {
     const fetchOrganismMappings = async () => {
       try {
         console.log('🔬 Disagg Profiles: Fetching organism name mappings...');
-        
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mapping`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
+
+        const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
+        }
         );
 
         if (response.ok) {
           const data = await response.json();
-          
+
           if (data.success && data.mappings && Array.isArray(data.mappings)) {
             const mapping = new Map<string, string>();
-            const pathogenOpts: Array<{code: string, name: string}> = [];
-            
+            const pathogenOpts: Array<{ code: string, name: string }> = [];
+
             data.mappings.forEach((item: any) => {
               if (item.code && item.organism_name) {
                 mapping.set(item.code, item.organism_name);
@@ -135,15 +131,15 @@ export function AMR_Human_Amb_DisagProfiles() {
                 });
               }
             });
-            
+
             pathogenOpts.sort((a, b) => a.name.localeCompare(b.name));
-            
+
             setOrganismNameMap(mapping);
             setPathogenOptions(pathogenOpts);
-            
+
             const defaultName = mapping.get('eco') || 'Escherichia coli';
             setSelectedPathogenName(defaultName);
-            
+
             console.log(`✅ Disagg Profiles: Loaded ${mapping.size} organism mappings`);
           }
         }
@@ -161,24 +157,22 @@ export function AMR_Human_Amb_DisagProfiles() {
   useEffect(() => {
     const fetchAntibioticsForPathogen = async () => {
       if (!selectedPathogenCode || pathogenLoading) return;
-      
+
       try {
         setAntibioticLoading(true);
         console.log(`💊 Fetching antibiotics for pathogen: ${selectedPathogenCode}`);
-        
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-antibiotics-for-organism?organism=${selectedPathogenCode}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
+
+        const response = await fetch('http://localhost:5001/v1/amr-health-v2', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
+        }
         );
 
         if (response.ok) {
           const data = await response.json();
-          
+
           if (data.success && data.antibiotics && Array.isArray(data.antibiotics)) {
             const antibioticOpts = data.antibiotics
               .map((ab: any) => ({
@@ -186,16 +180,16 @@ export function AMR_Human_Amb_DisagProfiles() {
                 name: ab.antibiotic_name || ab.name
               }))
               .sort((a, b) => a.name.localeCompare(b.name));
-            
+
             setAntibioticOptions(antibioticOpts);
-            
+
             // Set default antibiotic if available
             if (antibioticOpts.length > 0) {
               const defaultAntibiotic = antibioticOpts.find(ab => ab.code === 'CRO') || antibioticOpts[0];
               setSelectedAntibioticCode(defaultAntibiotic.code);
               setSelectedAntibioticName(defaultAntibiotic.name);
             }
-            
+
             console.log(`✅ Loaded ${antibioticOpts.length} antibiotics for ${selectedPathogenCode}`);
           }
         }
@@ -213,7 +207,7 @@ export function AMR_Human_Amb_DisagProfiles() {
   useEffect(() => {
     const loadFilterOptions = async () => {
       const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+      const newFilterOptions: Record<string, Array<{ value: string, label: string }>> = {};
 
       for (const column of amrColumns) {
         const options = await fetchFilterOptions(column);
@@ -241,8 +235,8 @@ export function AMR_Human_Amb_DisagProfiles() {
       'x_region': 'Region'
     };
 
-    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
-    
+    const configs: Record<string, { label: string; options: Array<{ value: string, label: string }> }> = {};
+
     Object.entries(filterOptions).forEach(([key, options]) => {
       configs[key] = {
         label: columnLabels[key] || key,
@@ -259,18 +253,18 @@ export function AMR_Human_Amb_DisagProfiles() {
       setLoading(true);
       setError(null);
       setLoadingMessage('Connecting to server...');
-      
+
       console.log('Fetching disaggregated resistance data...');
       console.log(`Pathogen: ${selectedPathogenCode}, Antibiotic: ${selectedAntibioticCode}, View By: ${viewByCategory}`);
-      
+
       const queryParams = new URLSearchParams();
-      
+
       // Add pathogen and antibiotic
       queryParams.append('ORGANISM', selectedPathogenCode);
       queryParams.append('ANTIBIOTIC', selectedAntibioticCode);
       queryParams.append('GROUP_BY', viewByCategory);
       queryParams.append('MIN_ISOLATES', '30');
-      
+
       // Add active filters
       activeFilters.forEach(filter => {
         const columnMapping: Record<string, string> = {
@@ -283,7 +277,7 @@ export function AMR_Human_Amb_DisagProfiles() {
           'year_spec': 'YEAR_SPEC',
           'x_region': 'X_REGION'
         };
-        
+
         const columnName = columnMapping[filter.type];
         if (columnName) {
           const filterValue = String(filter.value).trim();
@@ -292,18 +286,17 @@ export function AMR_Human_Amb_DisagProfiles() {
           }
         }
       });
-      
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-disaggregated-resistance${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const url = `http://localhost:5001/v1/amr-health-v2`;
       console.log('Request URL:', url);
-      
+
       setLoadingMessage('Processing disaggregated data...');
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         console.warn('Disaggregated data request timeout after 25 seconds');
         controller.abort();
       }, 25000);
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -312,41 +305,41 @@ export function AMR_Human_Amb_DisagProfiles() {
         },
         signal: controller.signal
       });
-      
+
       clearTimeout(timeoutId);
       setLoadingMessage('Processing response data...');
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const result: DisaggregatedResponse = await response.json();
       console.log('Disaggregated resistance response:', result);
-      
+
       if (result.error) {
         throw new Error(result.error);
       }
-      
+
       // Sort by category label (handle both strings and numbers)
       const sortedData = result.data.sort((a, b) => {
         const aLabel = a.categoryLabel;
         const bLabel = b.categoryLabel;
-        
+
         // If both are numbers, sort numerically
         if (typeof aLabel === 'number' && typeof bLabel === 'number') {
           return aLabel - bLabel;
         }
-        
+
         // If both are strings, sort alphabetically
         if (typeof aLabel === 'string' && typeof bLabel === 'string') {
           return aLabel.localeCompare(bLabel);
         }
-        
+
         // Mixed types: convert to string and compare
         return String(aLabel).localeCompare(String(bLabel));
       });
       setData(sortedData);
-      
+
     } catch (error) {
       console.error('Error fetching disaggregated data:', error);
       if (error.name === 'AbortError') {
@@ -373,20 +366,20 @@ export function AMR_Human_Amb_DisagProfiles() {
       if (filterType && filterValue) {
         const typeConfig = filterConfigs[filterType as keyof typeof filterConfigs];
         const valueOption = typeConfig?.options.find(opt => opt.value === filterValue);
-        
+
         if (typeConfig && valueOption) {
           const newFilter = {
             type: filterType,
             value: filterValue,
             label: `${typeConfig.label}: ${valueOption.label}`
           };
-          
+
           const exists = activeFilters.some(f => f.type === filterType && f.value === filterValue);
           if (!exists) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         setFilterType('');
         setFilterValue('');
       }
@@ -464,7 +457,7 @@ export function AMR_Human_Amb_DisagProfiles() {
       const data = payload[0].payload;
       const resistancePercent = data.Resistant;
       const thresholdLevel = resistancePercent < 20 ? 'Low' : resistancePercent < 40 ? 'Moderate' : 'High';
-      
+
       return (
         <div className="bg-white p-3 border rounded-lg shadow-lg">
           <p className="font-medium mb-2">{label}</p>
@@ -482,14 +475,14 @@ export function AMR_Human_Amb_DisagProfiles() {
 
   // Determine if we should show overlay
   const showOverlay = loading || error || !data || data.length === 0;
-  
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1 flex-wrap">
             <span className="text-lg font-medium">Resistance for</span>
-            
+
             {/* Inline Pathogen Dropdown */}
             <Popover open={pathogenDropdownOpen} onOpenChange={setPathogenDropdownOpen}>
               <PopoverTrigger asChild>
@@ -651,16 +644,15 @@ export function AMR_Human_Amb_DisagProfiles() {
               </PopoverContent>
             </Popover>
           </div>
-          
+
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className={`h-8 w-8 px-[5px] py-[0px] ${ 
-                showTable 
-                  ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+              className={`h-8 w-8 px-[5px] py-[0px] ${showTable
+                ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100'
+                : 'text-gray-500 hover:text-gray-700'
+                }`}
               onClick={() => {
                 setShowTable(!showTable);
                 console.log(`${showTable ? 'Show chart' : 'Show table'} view`);
@@ -682,17 +674,17 @@ export function AMR_Human_Amb_DisagProfiles() {
           </div>
         </div>
         <p className="text-sm text-gray-600 m-[0px] text-[13px] font-bold font-normal">
-          {showOverlay 
+          {showOverlay
             ? `Resistance breakdown for ${selectedPathogenName} against ${selectedAntibioticName} • By ${getViewByCategoryLabel(viewByCategory)} • Color-coded by alert thresholds • 30+ isolates`
             : `Showing ${data.length} ${getViewByCategoryLabel(viewByCategory).toLowerCase()} categories • ${selectedPathogenName} vs ${selectedAntibioticName} • Color-coded by alert thresholds • 30+ isolates`
           }
         </p>
-        
+
         {/* Inline Filter Controls */}
         <div className="bg-gray-50 rounded-lg p-4 border mt-[10px] mr-[0px] mb-[0px] ml-[0px]">
           <div className="flex items-center gap-4">
             <h3 className="font-semibold text-gray-900 text-sm">Filter Resistance Data:</h3>
-            
+
             {/* Filter Type */}
             <div className="flex-1">
               <Popover open={filterTypeOpen} onOpenChange={setFilterTypeOpen}>
@@ -843,7 +835,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                   Showing {data.length} {getViewByCategoryLabel(viewByCategory).toLowerCase()} categor{data.length !== 1 ? 'ies' : 'y'}
                 </span>
               </div>
-              
+
               {loading ? (
                 <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">
@@ -950,7 +942,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                   <span className="text-sm text-[12px]">{resistanceThresholds.High.label}</span>
                 </div>
               </div>
-              
+
               <div className="h-[350px] relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
@@ -963,7 +955,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                     }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
+                    <XAxis
                       dataKey="category"
                       angle={-25}
                       textAnchor="end"
@@ -971,7 +963,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                       tick={{ fontSize: 10 }}
                       interval={0}
                     />
-                    <YAxis 
+                    <YAxis
                       width={40}
                       domain={[0, 100]}
                       ticks={[0, 20, 40, 60, 80, 100]}
@@ -979,7 +971,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                       tick={{ fontSize: 11 }}
                     />
                     <Tooltip content={renderCustomTooltip} />
-                    <Bar 
+                    <Bar
                       dataKey="Resistant"
                       radius={[4, 4, 0, 0]}
                     >
@@ -989,7 +981,7 @@ export function AMR_Human_Amb_DisagProfiles() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-                
+
                 {/* Overlay for loading, error, and no data states */}
                 {showOverlay && (
                   <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex items-center justify-center">
@@ -1029,7 +1021,7 @@ export function AMR_Human_Amb_DisagProfiles() {
         {/* Footer */}
         <div className="pt-4 border-t border-gray-200 m-[0px]">
           <p className="text-xs text-gray-500">
-            {showOverlay 
+            {showOverlay
               ? `Resistance breakdown for ${selectedPathogenName} vs ${selectedAntibioticName} by ${getViewByCategoryLabel(viewByCategory)} • %R analysis with healthcare alert thresholds (Green <20%, Yellow 20-39%, Red ≥40%)`
               : `${selectedPathogenName} vs ${selectedAntibioticName} resistance across ${data.length} ${getViewByCategoryLabel(viewByCategory).toLowerCase()} categor${data.length !== 1 ? 'ies' : 'y'} • Healthcare alert thresholds (Green <20%, Yellow 20-39%, Red ≥40%)`
             }

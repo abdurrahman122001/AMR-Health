@@ -80,17 +80,17 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
             <div className="w-full">
               <button
                 onClick={() => setIsAmrExpanded(!isAmrExpanded)}
-                className="w-full flex items-center justify-center rounded-[4px]"
+                className="w-full flex items-center rounded-[4px] hover:bg-gray-50 transition-colors"
               >
-                <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
+                <div className="flex gap-[12px] items-center p-[8px] w-full">
                   <BarChart3 className="h-4 w-4 text-[#71839B]" />
-                  <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[13px]">AMR Dashboard</p>
+                  <p className="font-medium leading-[16px] text-[#324054] text-[13px] text-left flex-1">AMR Dashboard</p>
                   <ChevronDown className={`h-4 w-4 text-[#71839B] transition-transform ${isAmrExpanded ? '' : '-rotate-90'}`} />
                 </div>
               </button>
               
               {isAmrExpanded && (
-                <div className="ml-3 mt-1 flex flex-col gap-[6px]">
+                <div className="ml-6 mt-1 flex flex-col gap-[2px]">
                   {amrSubItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeDashboard === item.id;
@@ -98,13 +98,13 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
                       <button
                         key={item.id}
                         onClick={() => setActiveDashboard(item.id)}
-                        className={`w-full flex items-center justify-center rounded-[4px] ${
-                          isActive ? 'bg-blue-50' : ''
+                        className={`w-full flex items-center rounded-[4px] hover:bg-gray-50 transition-colors ${
+                          isActive ? 'bg-blue-50 border-l-2 border-blue-500' : ''
                         }`}
                       >
-                        <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
+                        <div className="flex gap-[12px] items-center p-[8px] w-full">
                           <Icon className={`h-4 w-4 ${isActive ? 'text-[#2D68FE]' : 'text-[#71839B]'}`} />
-                          <p className={`basis-0 font-medium grow leading-[16px] text-[13px] ${
+                          <p className={`font-medium leading-[16px] text-[13px] text-left flex-1 ${
                             isActive ? 'text-[#2D68FE]' : 'text-[#324054]'
                           }`}>
                             {item.title}
@@ -120,13 +120,13 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
             {/* AMC Dashboard */}
             <button
               onClick={() => setActiveDashboard('amc')}
-              className={`w-full flex items-center justify-center rounded-[4px] ${
-                activeDashboard === 'amc' ? 'bg-blue-50' : ''
+              className={`w-full flex items-center rounded-[4px] hover:bg-gray-50 transition-colors ${
+                activeDashboard === 'amc' ? 'bg-blue-50 border-l-2 border-blue-500' : ''
               }`}
             >
-              <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
+              <div className="flex gap-[12px] items-center p-[8px] w-full">
                 <Pill className={`h-4 w-4 ${activeDashboard === 'amc' ? 'text-[#2D68FE]' : 'text-[#71839B]'}`} />
-                <p className={`basis-0 font-medium grow leading-[16px] text-[13px] ${
+                <p className={`font-medium leading-[16px] text-[13px] text-left flex-1 ${
                   activeDashboard === 'amc' ? 'text-[#2D68FE]' : 'text-[#324054]'
                 }`}>
                   AMC Dashboard
@@ -138,17 +138,17 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
             <div className="w-full">
               <button
                 onClick={() => setIsAmuExpanded(!isAmuExpanded)}
-                className="w-full flex items-center justify-center rounded-[4px]"
+                className="w-full flex items-center rounded-[4px] hover:bg-gray-50 transition-colors"
               >
-                <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
+                <div className="flex gap-[12px] items-center p-[8px] w-full">
                   <Activity className="h-4 w-4 text-[#71839B]" />
-                  <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[14px]">AMU Dashboard</p>
+                  <p className="font-medium leading-[16px] text-[#324054] text-[14px] text-left flex-1">AMU Dashboard</p>
                   <ChevronDown className={`h-4 w-4 text-[#71839B] transition-transform ${isAmuExpanded ? '' : '-rotate-90'}`} />
                 </div>
               </button>
               
               {isAmuExpanded && (
-                <div className="ml-3 mt-1 flex flex-col gap-[6px]">
+                <div className="ml-6 mt-1 flex flex-col gap-[2px]">
                   {amuSubItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeDashboard === item.id;
@@ -156,13 +156,13 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
                       <button
                         key={item.id}
                         onClick={() => setActiveDashboard(item.id)}
-                        className={`w-full flex items-center justify-center rounded-[4px] ${
-                          isActive ? 'bg-blue-50' : ''
+                        className={`w-full flex items-center rounded-[4px] hover:bg-gray-50 transition-colors ${
+                          isActive ? 'bg-blue-50 border-l-2 border-blue-500' : ''
                         }`}
                       >
-                        <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
+                        <div className="flex gap-[12px] items-center p-[8px] w-full">
                           <Icon className={`h-4 w-4 ${isActive ? 'text-[#2D68FE]' : 'text-[#71839B]'}`} />
-                          <p className={`basis-0 font-medium grow leading-[16px] text-[13px] ${
+                          <p className={`font-medium leading-[16px] text-[13px] text-left flex-1 ${
                             isActive ? 'text-[#2D68FE]' : 'text-[#324054]'
                           }`}>
                             {item.title}
@@ -173,63 +173,6 @@ export function Navigation({ activeDashboard, setActiveDashboard }: NavigationPr
                   })}
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom Section */}
-        <div className="flex flex-col gap-[8px] items-start w-full">
-          {/* Bottom Icons */}
-          <div className="flex flex-col gap-[6px] items-start w-full">
-            {/* Messages */}
-            <button className="w-full flex items-center justify-center rounded-[4px]">
-              <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
-                <MessageSquare className="h-4 w-4 text-[#71839B]" />
-                <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[14px]">Messages</p>
-                <div className="bg-[#ff472e] px-[5px] py-[1px] rounded-[2000px]">
-                  <p className="font-normal leading-[14px] text-[11px] text-white">2</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Notifications */}
-            <button className="w-full flex items-center justify-center rounded-[4px]">
-              <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
-                <Bell className="h-4 w-4 text-[#71839B]" />
-                <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[14px]">Notifications</p>
-                <div className="bg-[#ff472e] px-[5px] py-[1px] rounded-[2000px]">
-                  <p className="font-normal leading-[14px] text-[11px] text-white">2</p>
-                </div>
-              </div>
-            </button>
-
-            {/* Settings */}
-            <button className="w-full flex items-center justify-center rounded-[4px]">
-              <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
-                <Settings className="h-4 w-4 text-[#71839B]" />
-                <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[13px]">Settings</p>
-              </div>
-            </button>
-
-            {/* Logout */}
-            <button className="w-full flex items-center justify-center rounded-[4px]">
-              <div className="flex gap-[12px] items-center justify-center p-[8px] w-full">
-                <LogOut className="h-4 w-4 text-[#71839B]" />
-                <p className="basis-0 font-medium grow leading-[16px] text-[#324054] text-[13px]">Logout</p>
-              </div>
-            </button>
-          </div>
-
-          {/* Profile */}
-          <div className="w-full flex items-center justify-center border-t border-gray-200 pt-2">
-            <div className="flex gap-[8px] items-center justify-center p-[8px] w-full">
-              <div className="relative shrink-0 size-[32px]">
-                <div className="absolute bg-white inset-0 rounded-full border border-[#d9d9d9]" />
-              </div>
-              <div className="basis-0 flex flex-col gap-[2px] grow items-start">
-                <p className="font-normal leading-[14px] text-[#324054] text-[11px] w-full">Admin User</p>
-                <p className="font-normal leading-[12px] text-[#71839b] text-[10px] w-full">admin@amr.portal</p>
-              </div>
             </div>
           </div>
         </div>

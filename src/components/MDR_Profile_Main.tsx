@@ -55,14 +55,12 @@ export function MDRProfileMain() {
 
       console.log(`Fetching filter values for: ${columnName}`);
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${columnName.toUpperCase()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (!response.ok) {
@@ -124,7 +122,7 @@ export function MDRProfileMain() {
       };
 
       // Avoid duplicate filters
-      const exists = activeFilters.some(filter => 
+      const exists = activeFilters.some(filter =>
         filter.column === newFilter.column && filter.value === newFilter.value
       );
 
@@ -190,16 +188,16 @@ export function MDRProfileMain() {
 
       {/* MDR Components Grid */}
       <div className="space-y-6">
-      
-      {/* MDR Bacteria Percentage */}
-      <MDRBacteriaIntegrated activeFilters={activeFilters} />   
 
-      {/* MDR Bacteria Distribution by Organism */}
-      <MDRBacteriaByOrganism activeFilters={activeFilters} />
+        {/* MDR Bacteria Percentage */}
+        <MDRBacteriaIntegrated activeFilters={activeFilters} />
 
-      {/* MDRO Incidence Demographics - Full Width */}
-      <MDRIncidenceDemographics activeFilters={activeFilters} />
-        
+        {/* MDR Bacteria Distribution by Organism */}
+        <MDRBacteriaByOrganism activeFilters={activeFilters} />
+
+        {/* MDRO Incidence Demographics - Full Width */}
+        <MDRIncidenceDemographics activeFilters={activeFilters} />
+
       </div>
     </div>
   );

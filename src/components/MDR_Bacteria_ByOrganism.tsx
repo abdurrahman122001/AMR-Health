@@ -42,8 +42,8 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
   const [filterValue, setFilterValue] = useState<string>('');
   const [filterTypeOpen, setFilterTypeOpen] = useState(false);
   const [filterValueOpen, setFilterValueOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Array<{type: string, value: string, label: string}>>([]);
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{value: string, label: string}>>>({});
+  const [activeFilters, setActiveFilters] = useState<Array<{ type: string, value: string, label: string }>>([]);
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string, label: string }>>>({});
 
   const demographicOptions = [
     { value: 'SEX', label: 'Sex' },
@@ -60,14 +60,12 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
   // Fetch filter options from server
   const fetchFilterOptions = async (column: string) => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=${column}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (response.ok) {
@@ -88,14 +86,12 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
   // Fetch organism mappings from backend
   const fetchOrganismMappings = async () => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/organism-mappings`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (response.ok) {
@@ -114,7 +110,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
   useEffect(() => {
     const loadFilterOptions = async () => {
       const amrColumns = ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION'];
-      const newFilterOptions: Record<string, Array<{value: string, label: string}>> = {};
+      const newFilterOptions: Record<string, Array<{ value: string, label: string }>> = {};
 
       const columnLabels: Record<string, string> = {
         'SEX': 'Sex',
@@ -143,7 +139,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
 
   // Combined filter configs using dynamic options
   const filterConfigs = useMemo(() => {
-    const configs: Record<string, { label: string; options: Array<{value: string, label: string}> }> = {};
+    const configs: Record<string, { label: string; options: Array<{ value: string, label: string }> }> = {};
 
     const configMapping: Record<string, string> = {
       'sex': 'Sex',
@@ -172,21 +168,21 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
       if (filterType && filterValue) {
         const typeConfig = filterConfigs[filterType as keyof typeof filterConfigs];
         const valueOption = typeConfig?.options.find(opt => opt.value === filterValue);
-        
+
         if (typeConfig && valueOption) {
           const newFilter = {
             type: filterType,
             value: filterValue,
             label: `${typeConfig.label}: ${valueOption.label}`
           };
-          
+
           // Check if filter already exists
           const exists = activeFilters.some(f => f.type === filterType && f.value === filterValue);
           if (!exists) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         setFilterType('');
         setFilterValue('');
       }
@@ -219,12 +215,12 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
       setLoading(true);
       setError(null);
       console.log('Fetching MDR bacteria distribution by:', selectedDemographic);
-      
+
       // Build query parameters from active filters
       const params = new URLSearchParams({
         groupBy: selectedDemographic
       });
-      
+
       activeFilters.forEach(filter => {
         // Map filter types to AMR_HH column names
         const columnMapping: Record<string, string> = {
@@ -237,7 +233,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
           'year_spec': 'YEAR_SPEC',
           'x_region': 'X_REGION'
         };
-        
+
         const columnName = columnMapping[filter.type];
         if (columnName) {
           const filterValue = String(filter.value).trim();
@@ -247,14 +243,12 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
         }
       });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/mdr-bacteria-by-organism?${params.toString()}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      }
       );
 
       if (!response.ok) {
@@ -294,7 +288,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
   // Mapped data with organism names when viewing by organism
   const displayData = useMemo(() => {
     if (!data) return null;
-    
+
     return {
       ...data,
       organisms: data.organisms.map(item => ({
@@ -329,7 +323,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-medium">MDR Bacteria Distribution by</span>
-            
+
             {/* Inline Demographic Dropdown */}
             <Popover open={selectedDemographicOpen} onOpenChange={setSelectedDemographicOpen}>
               <PopoverTrigger asChild>
@@ -375,16 +369,15 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
               </PopoverContent>
             </Popover>
           </div>
-          
+
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className={`h-8 w-8 px-[5px] py-[0px] ${ 
-                showTable 
-                  ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+              className={`h-8 w-8 px-[5px] py-[0px] ${showTable
+                ? 'text-blue-600 bg-blue-50 hover:text-blue-700 hover:bg-blue-100'
+                : 'text-gray-500 hover:text-gray-700'
+                }`}
               onClick={() => {
                 setShowTable(!showTable);
                 console.log(`${showTable ? 'Show chart' : 'Show table'} view for MDR bacteria by organism`);
@@ -405,7 +398,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
             </Button>
           </div>
         </div>
-        
+
         <p className="text-sm text-gray-600 m-[0px] text-[13px] font-bold font-normal">
           {loading ? (
             <span className="text-gray-500 italic">Loading MDR distribution...</span>
@@ -415,12 +408,12 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
             'MDR bacteria distribution by demographic category'
           )}
         </p>
-        
+
         {/* Inline Filter Controls */}
         <div className="bg-gray-50 rounded-lg p-4 border mt-[10px] mr-[0px] mb-[0px] ml-[0px]">
           <div className="flex items-center gap-4">
             <h3 className="font-semibold text-gray-900 text-sm">Filter MDR Data:</h3>
-            
+
             {/* Filter Type */}
             <div className="flex-1">
               <Popover open={filterTypeOpen} onOpenChange={setFilterTypeOpen}>
@@ -599,7 +592,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <div 
+                            <div
                               className="w-3 h-3 rounded-full flex-shrink-0"
                               style={{ backgroundColor: organism.color }}
                             />
@@ -620,8 +613,8 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
                           </span>
                         </TableCell>
                         <TableCell>
-                          <div 
-                            className="inline-block w-3 h-3 rounded-full" 
+                          <div
+                            className="inline-block w-3 h-3 rounded-full"
                             style={{ backgroundColor: organism.color }}
                           />
                         </TableCell>
@@ -629,7 +622,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
                     ))}
                   </TableBody>
                 </Table>
-                
+
                 {/* Summary Statistics in Table View */}
                 <div className="border-t bg-gray-50 p-4">
                   <div className="text-center">
@@ -662,11 +655,11 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <text 
-                        x="40%" 
-                        y="50%" 
-                        textAnchor="middle" 
-                        dominantBaseline="middle" 
+                      <text
+                        x="40%"
+                        y="50%"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
                         className="text-sm font-medium fill-gray-700"
                       >
                         {displayData.organisms.length} {demographicOptions.find(opt => opt.value === selectedDemographic)?.label}
@@ -690,7 +683,7 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
                     {displayData.organisms.map((organism, index) => (
                       <div key={index} className="flex items-start justify-between rounded mx-[0px] my-[2px] mt-[0px] mr-[0px] mb-[2px] ml-[0px] px-[8px] py-[4px]">
                         <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div 
+                          <div
                             className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
                             style={{ backgroundColor: organism.color }}
                           />
@@ -744,8 +737,8 @@ export function MDRBacteriaByOrganism({ activeFilters: externalActiveFilters = [
         {/* Footer */}
         <div className="mt-6 pt-4 border-t border-gray-200">
           <p className="text-xs text-gray-500">
-            Shows distribution of multidrug-resistant (MDR) bacteria across different pathogen species. 
-            MDR defined as resistance to ≥3 antimicrobial classes. 
+            Shows distribution of multidrug-resistant (MDR) bacteria across different pathogen species.
+            MDR defined as resistance to ≥3 antimicrobial classes.
             Includes organisms: S. aureus, E. coli, S. pneumoniae, K. pneumoniae, Enterobacter spp., E. faecium, E. faecalis.
           </p>
         </div>

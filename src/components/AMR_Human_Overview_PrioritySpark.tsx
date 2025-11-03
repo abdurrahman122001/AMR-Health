@@ -175,11 +175,11 @@ const getResistanceAlertColor = (percentage: number): string => {
 // Get trend direction and color
 const getTrendInfo = (trends: { year: number; resistance: number }[]) => {
   if (trends.length < 2) return { direction: 'stable', color: '#6b7280' };
-  
+
   const firstValue = trends[0].resistance;
   const lastValue = trends[trends.length - 1].resistance;
   const change = lastValue - firstValue;
-  
+
   if (change > 5) return { direction: 'increasing', color: '#dc2626' };
   if (change < -5) return { direction: 'decreasing', color: '#16a34a' };
   return { direction: 'stable', color: '#6b7280' };
@@ -227,7 +227,7 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
 
   // State for real resistance data
   const [realResistanceData, setRealResistanceData] = useState<{
-    [key: string]: { resistance_rate?: number; resistance_percentage?: number; total_tested?: number; total_resistant?: number; year_data?: Array<{year: number, resistance_rate: number, total_tested: number}> };
+    [key: string]: { resistance_rate?: number; resistance_percentage?: number; total_tested?: number; total_resistant?: number; year_data?: Array<{ year: number, resistance_rate: number, total_tested: number }> };
   }>({});
   const [isLoading, setIsLoading] = useState(false);
 
@@ -236,16 +236,14 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
     const loadFilterOptions = async () => {
       for (const filterType of ['SEX', 'AGE_CAT', 'PAT_TYPE', 'INSTITUTION', 'DEPARTMENT', 'WARD_TYPE', 'YEAR_SPEC', 'X_REGION', 'ORGANISM']) {
         try {
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-options?column=${filterType}`,
-            {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json'
-              }
+          const response = await fetch('https://backend.ajhiveprojects.com/v1/amr-health-v2', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
             }
+          }
           );
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.success && data.options) {
@@ -257,7 +255,7 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
         }
       }
     };
-    
+
     loadFilterOptions();
   }, []);
 
@@ -265,7 +263,6 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
   const fetchResistanceTrendData = async () => {
     try {
       setIsLoading(true);
-      console.log('Fetching resistance trend data...');
 
       // Build filter query parameters
       const filterParams = new URLSearchParams();
@@ -273,76 +270,75 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
         // AMR_HH filter types are already the column names
         filterParams.append(filter.type, filter.value);
       });
-      
+
       const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d`;
       const endpoints = [
-        { 
-          organism: 'Acinetobacter baumannii', 
+        {
+          organism: 'Acinetobacter baumannii',
           antibiotic: 'Carbapenems',
-          url: `${baseUrl}/amr-abaumannii-carbapenems-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-abaumannii-carbapenems-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Escherichia coli', 
+        {
+          organism: 'Escherichia coli',
           antibiotic: '3G Cephalosporins',
-          url: `${baseUrl}/amr-ecoli-3gc-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-ecoli-3gc-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Escherichia coli', 
+        {
+          organism: 'Escherichia coli',
           antibiotic: 'Carbapenems',
-          url: `${baseUrl}/amr-ecoli-carbapenems-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-ecoli-carbapenems-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Klebsiella pneumoniae', 
+        {
+          organism: 'Klebsiella pneumoniae',
           antibiotic: '3G Cephalosporins',
-          url: `${baseUrl}/amr-kpneumoniae-3gc-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-kpneumoniae-3gc-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Klebsiella pneumoniae', 
+        {
+          organism: 'Klebsiella pneumoniae',
           antibiotic: 'Aminoglycosides',
-          url: `${baseUrl}/amr-kpneumoniae-aminoglycosides-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-kpneumoniae-aminoglycosides-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Klebsiella pneumoniae', 
+        {
+          organism: 'Klebsiella pneumoniae',
           antibiotic: 'Carbapenems',
-          url: `${baseUrl}/amr-kpneumoniae-carbapenems-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-kpneumoniae-carbapenems-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Klebsiella pneumoniae', 
+        {
+          organism: 'Klebsiella pneumoniae',
           antibiotic: 'Fluoroquinolones',
-          url: `${baseUrl}/amr-kpneumoniae-fluoroquinolones-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-kpneumoniae-fluoroquinolones-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Pseudomonas aeruginosa', 
+        {
+          organism: 'Pseudomonas aeruginosa',
           antibiotic: 'Carbapenems',
-          url: `${baseUrl}/amr-paeruginosa-carbapenems-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-paeruginosa-carbapenems-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Staphylococcus aureus', 
+        {
+          organism: 'Staphylococcus aureus',
           antibiotic: 'Methicillin',
-          url: `${baseUrl}/amr-saureus-methicillin-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-saureus-methicillin-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Streptococcus pneumoniae', 
+        {
+          organism: 'Streptococcus pneumoniae',
           antibiotic: '3G Cephalosporins',
-          url: `${baseUrl}/amr-spneumoniae-3gc-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-spneumoniae-3gc-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Streptococcus pneumoniae', 
+        {
+          organism: 'Streptococcus pneumoniae',
           antibiotic: 'Penicillin',
-          url: `${baseUrl}/amr-spneumoniae-penicillin-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-spneumoniae-penicillin-trend?${filterParams.toString()}`
         },
-        { 
-          organism: 'Enterococci', 
+        {
+          organism: 'Enterococci',
           antibiotic: 'Vancomycin',
-          url: `${baseUrl}/amr-enterococci-vancomycin-trend?${filterParams.toString()}` 
+          url: `${baseUrl}/amr-enterococci-vancomycin-trend?${filterParams.toString()}`
         }
       ];
-      
+
       // Fetch all endpoints simultaneously
       const fetchPromises = endpoints.map(async ({ organism, antibiotic, url }) => {
         try {
-          console.log(`Fetching ${organism} vs ${antibiotic} trend data from: ${url}`);
-          
+
           const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -350,7 +346,7 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
               'Content-Type': 'application/json'
             }
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             console.log(`${organism} vs ${antibiotic} trend data received:`, data);
@@ -365,10 +361,10 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
           return { organism, antibiotic, data: null };
         }
       });
-      
+
       // Wait for all requests to complete
       const results = await Promise.all(fetchPromises);
-      
+
       // Organize results by organism-antibiotic pair
       const trendDataMap: typeof realResistanceData = {};
       results.forEach(({ organism, antibiotic, data }) => {
@@ -377,10 +373,9 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
           trendDataMap[key] = data;
         }
       });
-      
-      console.log('All resistance trend data fetched:', trendDataMap);
+
       setRealResistanceData(trendDataMap);
-      
+
     } catch (error) {
       console.error('Error fetching resistance trend data:', error);
     } finally {
@@ -401,17 +396,15 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
             }
           }
         );
-        
+
         if (response.ok) {
           const data = await response.json();
-          console.log('AMR_HH Table Columns:', data);
-          console.log('Antibiotic Columns:', data.antibiotic_columns);
         }
       } catch (error) {
         console.error('Error testing columns:', error);
       }
     };
-    
+
     testColumns();
   }, []);
 
@@ -427,30 +420,30 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
         const typeOption = filterTypeOptions.find(opt => opt.value === filterType);
         const valueOptions = getFilterValueOptionsForType(filterType);
         const valueOption = valueOptions.find(opt => opt.value === filterValue);
-        
+
         if (typeOption && valueOption) {
           const newFilter: Filter = {
             type: filterType,
             value: filterValue,
             label: `${typeOption.label}: ${valueOption.label}`
           };
-          
+
           // Check if filter already exists
           const exists = activeFilters.some(f => f.type === filterType && f.value === filterValue);
           if (!exists) {
             setActiveFilters([...activeFilters, newFilter]);
           }
         }
-        
+
         setFilterType("");
         setFilterValue("");
       }
     },
-    
+
     removeFilter: (index: number) => {
       setActiveFilters(activeFilters.filter((_, i) => i !== index));
     },
-    
+
     clearAllFilters: () => {
       setActiveFilters([]);
     }
@@ -471,7 +464,7 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
     // If we have real data, use it; otherwise fall back to mock data
     if (Object.keys(realResistanceData).length > 0) {
       const realSparklineData = [];
-      
+
       // Map real data to sparkline format
       const dataMappings = [
         { organism: 'Acinetobacter baumannii', antibiotic: 'Carbapenems', key: 'Acinetobacter baumannii_Carbapenems' },
@@ -487,7 +480,7 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
         { organism: 'Streptococcus pneumoniae', antibiotic: 'Penicillin', key: 'Streptococcus pneumoniae_Penicillin' },
         { organism: 'Enterococci', antibiotic: 'Vancomycin', key: 'Enterococci_Vancomycin' }
       ];
-      
+
       dataMappings.forEach(({ organism, antibiotic, key }) => {
         const data = realResistanceData[key];
         if (data && data.year_data && Array.isArray(data.year_data)) {
@@ -499,11 +492,11 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
               resistance: Math.round(yearData.resistance_rate * 100) / 100, // Round to 2 decimal places
               specimens: yearData.total_tested || 0
             }));
-          
+
           if (trends.length > 0) {
             const currentResistance = trends[trends.length - 1]?.resistance || 0;
             const trendInfo = getTrendInfo(trends);
-            
+
             realSparklineData.push({
               organism,
               antibiotic,
@@ -514,17 +507,17 @@ export const AMR_Human_Overview_PrioritySpark = React.memo(function AMR_Human_Ov
           }
         }
       });
-      
+
       if (realSparklineData.length > 0) {
         return realSparklineData;
       }
     }
-    
+
     // Fallback to mock data if no real data available
     return priorityBugDrugData.map(combo => {
       const currentResistance = combo.trends[combo.trends.length - 1]?.resistance || 0;
       const trendInfo = getTrendInfo(combo.trends);
-      
+
       return {
         ...combo,
         currentResistance,

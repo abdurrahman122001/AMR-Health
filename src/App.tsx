@@ -102,16 +102,14 @@ export default function App() {
   // Query ORGANISM column for unique values
   React.useEffect(() => {
     const fetchOrganismValues = async () => {
-      try {
-        console.log('🔬 Querying ORGANISM column for unique values...');
-        
+      try {        
         if (!projectId || !publicAnonKey) {
           console.warn('Missing project configuration for ORGANISM query');
           return;
         }
 
         // Query AMR_HH table for unique ORGANISM values
-        const amrHumanUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-filter-values?column=ORGANISM`;
+        const amrHumanUrl = `https://backend.ajhiveprojects.com/v1/amr-health-v2`;
         
         try {
           const response = await fetch(amrHumanUrl, {
@@ -123,8 +121,6 @@ export default function App() {
 
           if (response.ok) {
             const data = await response.json();
-            console.log('✅ AMR_HH ORGANISM values found:', data.values.length, 'unique organisms');
-            console.log('📋 Complete list of organisms in AMR_HH:');
             console.table(data.values.sort());
           } else {
             console.error('❌ Failed to fetch AMR_HH ORGANISM values:', response.status);
@@ -147,11 +143,8 @@ export default function App() {
           if (animalResponse.ok) {
             const animalData = await animalResponse.json();
             if (animalData.values && Array.isArray(animalData.values)) {
-              console.log('✅ AMR_Animal STRAINNOTE values found:', animalData.values.length, 'unique organisms');
-              console.log('📋 Complete list of organisms in AMR_Animal:');
               console.table(animalData.values.sort());
             } else {
-              console.log('⚠️ AMR_Animal STRAINNOTE query returned no values or invalid format:', animalData);
             }
           } else {
             console.error('❌ Failed to fetch AMR_Animal STRAINNOTE values:', animalResponse.status);
@@ -177,10 +170,8 @@ export default function App() {
           setMostRecentSpecDate('Configuration incomplete');
           return;
         }
-
-        console.log('🗓️ Fetching most recent SPEC_DATE...');
         
-        const specDateUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/amr-most-recent-spec-date`;
+        const specDateUrl = `https://backend.ajhiveprojects.com/v1/amr-health-v2`;
         
         try {
           const response = await fetch(specDateUrl, {
@@ -203,8 +194,6 @@ export default function App() {
                 month: 'short',
                 year: 'numeric'
               }) + ' at 6:00 PM';
-              
-              console.log('✅ Most recent SPEC_DATE found:', data.mostRecentDate, '→ formatted as:', formattedDate);
               setMostRecentSpecDate(formattedDate);
             } else {
               console.warn('⚠️ No SPEC_DATE found in response');
@@ -231,11 +220,7 @@ export default function App() {
   React.useEffect(() => {
     const fetchLastUpdated = async () => {
       try {
-        setServerStatus('connecting');
-        console.log('Testing server connectivity...');
-        console.log('Project ID:', projectId);
-        console.log('Public Anon Key (first 10 chars):', publicAnonKey?.substring(0, 10) + '...');
-        
+        setServerStatus('connecting');        
         // Skip server calls if projectId or publicAnonKey are missing
         if (!projectId || !publicAnonKey) {
           console.warn('Missing project configuration');
@@ -245,8 +230,7 @@ export default function App() {
         }
         
         // Try a simple health check with shorter timeout first
-        const healthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2267887d/health`;
-        console.log('Health check URL:', healthUrl);
+        const healthUrl = `https://backend.ajhiveprojects.com/v1/amr-health-v2`;
         
         // Create an AbortController for request timeout
         const controller = new AbortController();
@@ -270,9 +254,7 @@ export default function App() {
           if (!healthResponse.ok) {
             throw new Error(`Health check failed: ${healthResponse.status}`);
           }
-          
-          console.log('Server health check passed');
-          
+                  
           // Now try the diagnostic endpoint for more detailed info
           try {
             const diagnosticController = new AbortController();
@@ -292,9 +274,7 @@ export default function App() {
             clearTimeout(diagnosticTimeoutId);
             
             if (diagnosticResponse.ok) {
-              const diagnosticData = await diagnosticResponse.json();
-              console.log('Diagnostic data:', diagnosticData);
-              
+              const diagnosticData = await diagnosticResponse.json();              
               if (diagnosticData.database.connection === 'success') {
                 setServerStatus('online');
                 setLastUpdated('Server online - Database accessible');
