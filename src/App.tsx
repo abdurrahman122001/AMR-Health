@@ -1,6 +1,7 @@
+
 import image_492ad16eb6072aa5f9b5a0e930b78d688bbc540c from "figma:asset/492ad16eb6072aa5f9b5a0e930b78d688bbc540c.png";
 import React, { useState, useEffect } from "react";
-import { Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Users, Heart } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { AMR_Human } from "./components/AMR_Human";
 import { AMR_Animal } from "./components/AMR_Animal";
@@ -21,7 +22,9 @@ import { AMR_SIR_DonutChart } from "./components/AMR_SIR_DonutChart";
 import { AMR_SIR_ProfileChart } from "./components/AMR_SIR_ProfileChart";
 import { FilterConfigAdmin } from "./components/FilterConfigAdmin";
 import { projectId, publicAnonKey } from './utils/supabase/info';
-import {AmuAnimal} from "./components/AmuAnimal";
+import { AmuAnimal } from "./components/AmuAnimal";
+import { AmcHuman } from "./components/AmcHuman";
+import { AmcAnimal } from "./components/AmcAnimal";
 
 const gassLogo = image_492ad16eb6072aa5f9b5a0e930b78d688bbc540c;
 
@@ -53,7 +56,11 @@ export default function App() {
       case "amr-environmental":
         return "Antimicrobial Resistance Dashboard - Environmental Health";
       case "amc":
-        return "Antimicrobial Consumption Dashboard";
+        return "Antimicrobial Consumption Dashboard - Overview";
+      case "amc-human":
+        return "Antimicrobial Consumption Dashboard - Human Health";
+      case "amc-animal":
+        return "Antimicrobial Consumption Dashboard - Animal Health";
       case "amu-human":
         return "Antimicrobial Use Dashboard - Human Health";
       case "amu-animal":
@@ -88,7 +95,11 @@ export default function App() {
       case "amr-environmental":
         return "Sector: Environmental Health";
       case "amc":
+        return "Sector: Overview";
+      case "amc-human":
         return "Sector: Human Health";
+      case "amc-animal":
+        return "Sector: Animal Health";
       case "amu-human":
         return "Sector: Human Health";
       case "amu-animal":
@@ -413,6 +424,10 @@ export default function App() {
             )}
 
             {activeDashboard === "amc" && <AmcDashboard />}
+            
+            {activeDashboard === "amc-human" && <AmcHuman />}
+            
+            {activeDashboard === "amc-animal" && <AmcAnimal />}
 
             {(activeDashboard === "amu" ||
               activeDashboard === "amu-human") && (
