@@ -5,7 +5,6 @@ import { AmuCharts } from './AmuCharts';
 import { DiagnosisProfileView } from './AmuChartsWithDiagnosis';
 import { AMU_Human_Demograph_RSex } from './AMU_Human_Demograph_RSex';
 import { ServerDebug } from './ServerDebug';
-import { makeServerRequest } from '../utils/supabase/client';
 
 interface AmuSummaryCardProps {
   title: string;
@@ -49,380 +48,276 @@ function AmuSummaryCard({ title, value, subtitle, icon, color = 'default' }: Amu
   );
 }
 
+// Interface for the API response
+interface AmuHumanResponse {
+  success: boolean;
+  data: {
+    nodeId: string;
+    nodeName: string;
+    totalRows: number;
+    columns: string[];
+    rows: any[];
+  };
+}
+
 export function AmuDashboard() {
-  // State for real antibiotic prevalence data from AMU_HH table
-  const [prevalenceData, setPrevalenceData] = useState<{
-    prevalencePercentage: string;
+  // State for API data
+  const [apiData, setApiData] = useState<AmuHumanResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // State for calculated metrics
+  const [calculatedMetrics, setCalculatedMetrics] = useState<{
     totalRecords: number;
     patientsWithAntibiotics: number;
-    loading: boolean;
-    error: string | null;
+    prevalencePercentage: string;
+    watchReserveCount: number;
+    watchReservePercentage: string;
+    targetedCount: number;
+    targetedPercentage: string;
+    cultureYesCount: number;
+    cultureLabPercentage: string;
+    compliantCount: number;
+    compliancePercentage: string;
   }>({
-    prevalencePercentage: '0.0',
     totalRecords: 0,
     patientsWithAntibiotics: 0,
-    loading: true,
-    error: null
-  });
-
-  // State for real AWaRe Share data from AMU_HH table
-  const [awareData, setAwareData] = useState<{
-    watchReservePercentage: string;
-    totalRecords: number;
-    watchReserveCount: number;
-    loading: boolean;
-    error: string | null;
-  }>({
-    watchReservePercentage: '0.0',
-    totalRecords: 0,
+    prevalencePercentage: '0.0',
     watchReserveCount: 0,
-    loading: true,
-    error: null
-  });
-
-  // State for total record count from AMU_HH table
-  const [totalRecordsData, setTotalRecordsData] = useState<{
-    totalRecords: number;
-    loading: boolean;
-    error: string | null;
-  }>({
-    totalRecords: 0,
-    loading: true,
-    error: null
-  });
-
-  // State for targeted therapy data from AMU_HH table
-  const [targetedTherapyData, setTargetedTherapyData] = useState<{
-    targetedPercentage: string;
-    totalRecords: number;
-    targetedCount: number;
-    loading: boolean;
-    error: string | null;
-  }>({
-    targetedPercentage: '0.0',
-    totalRecords: 0,
+    watchReservePercentage: '0.0',
     targetedCount: 0,
-    loading: true,
-    error: null
-  });
-
-  // State for culture sent to lab data from AMU_HH table
-  const [cultureLabData, setCultureLabData] = useState<{
-    cultureLabPercentage: string;
-    totalRecords: number;
-    cultureYesCount: number;
-    loading: boolean;
-    error: string | null;
-  }>({
-    cultureLabPercentage: '0.0',
-    totalRecords: 0,
+    targetedPercentage: '0.0',
     cultureYesCount: 0,
-    loading: true,
-    error: null
-  });
-
-  // State for STG compliance data from AMU_HH table
-  const [stgComplianceData, setStgComplianceData] = useState<{
-    compliancePercentage: string;
-    totalRecords: number;
-    compliantCount: number;
-    loading: boolean;
-    error: string | null;
-  }>({
-    compliancePercentage: '0.0',
-    totalRecords: 0,
+    cultureLabPercentage: '0.0',
     compliantCount: 0,
-    loading: true,
-    error: null
+    compliancePercentage: '0.0'
   });
 
-  // Fetch antibiotic prevalence data from AMU_HH table
+  // Fetch data from the API
   useEffect(() => {
-    const fetchPrevalenceData = async () => {
+    const fetchAmuHumanData = async () => {
       try {
-        console.log('🔍 AMU Dashboard: Fetching antibiotic prevalence from AMU_HH table...');
+        setLoading(true);
+        setError(null);
         
-        const data = await makeServerRequest('amu-prevalence?no_filters=true');
+        console.log('🔍 AMU Dashboard: Fetching data from AMU Human API...');
         
-        if (data.error) {
-          throw new Error(data.error);
+        const response = await fetch('https://backend.ajhiveprojects.com/v1/amu-human', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        const data: AmuHumanResponse = await response.json();
         
-        console.log('📊 AMU Dashboard: Received prevalence data:', {
-          total: data.totalRecords,
-          withAntibiotics: data.patientsWithAntibiotics,
-          percentage: data.prevalencePercentage,
-          dataSource: data.dataSource
+        if (!data.success) {
+          throw new Error('API returned unsuccessful response');
+        }
+
+        console.log('📊 AMU Dashboard: Received API data:', {
+          totalRows: data.data.totalRows,
+          columns: data.data.columns.length,
+          rows: data.data.rows.length
         });
+
+        setApiData(data);
         
-        setPrevalenceData({
-          prevalencePercentage: data.prevalencePercentage || '0.0',
-          totalRecords: data.totalRecords || 0,
-          patientsWithAntibiotics: data.patientsWithAntibiotics || 0,
-          loading: false,
-          error: null
-        });
+        // Calculate metrics from the data
+        calculateMetrics(data.data.rows);
         
       } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching prevalence data:', err);
-        setPrevalenceData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch prevalence data'
-        }));
+        console.error('❌ AMU Dashboard: Error fetching AMU Human data:', err);
+        setError(err.message || 'Failed to fetch data from AMU Human API');
+      } finally {
+        setLoading(false);
       }
     };
 
-    const fetchAwareData = async () => {
+    const calculateMetrics = (rows: any[]) => {
       try {
-        console.log('🔍 AMU Dashboard: Fetching AWaRe Share from AMU_HH table...');
+        console.log('🧮 AMU Dashboard: Calculating metrics from', rows.length, 'rows...');
         
-        const data = await makeServerRequest('amu-aware-share?no_filters=true');
+        // Filter out empty rows and get actual patient data
+        const patientRows = rows.filter(row => 
+          row['Inquiry ID'] && 
+          row['Inquiry ID'] !== '' && 
+          row['Activity code'] !== 'M' // Exclude metadata rows
+        );
+
+        const totalRecords = patientRows.length;
         
-        if (data.error) {
-          throw new Error(data.error);
-        }
+        // Calculate antibiotic prevalence
+        const patientsWithAntibiotics = patientRows.filter(row => 
+          row['Antimicrobial name'] && row['Antimicrobial name'] !== ''
+        ).length;
         
-        console.log('📊 AMU Dashboard: Received AWaRe data:', {
-          total: data.totalRecords,
-          watchReserve: data.watchReserveCount,
-          percentage: data.watchReservePercentage,
-          dataSource: data.dataSource
+        const prevalencePercentage = totalRecords > 0 
+          ? ((patientsWithAntibiotics / totalRecords) * 100).toFixed(1)
+          : '0.0';
+
+        // Calculate AWaRe Share (Watch/Reserve antibiotics)
+        const antibioticRows = patientRows.filter(row => 
+          row['Antimicrobial name'] && row['Antimicrobial name'] !== ''
+        );
+        
+        const watchReserveCount = antibioticRows.filter(row => 
+          row['AWaRe'] === 'Watch' || row['AWaRe'] === 'Reserve'
+        ).length;
+        
+        const watchReservePercentage = antibioticRows.length > 0
+          ? ((watchReserveCount / antibioticRows.length) * 100).toFixed(1)
+          : '0.0';
+
+        // Calculate Targeted Therapy
+        const targetedCount = patientRows.filter(row => 
+          row['Treatment based on biomarker data'] === 'Yes' || 
+          row['Targeted treatment against other MDR organisms'] === 'Yes'
+        ).length;
+        
+        const targetedPercentage = totalRecords > 0
+          ? ((targetedCount / totalRecords) * 100).toFixed(1)
+          : '0.0';
+
+        // Calculate Culture Sent to Lab
+        const cultureYesCount = patientRows.filter(row => 
+          row['Culture to lab (Yes/No)'] === 'Yes'
+        ).length;
+        
+        const cultureLabPercentage = totalRecords > 0
+          ? ((cultureYesCount / totalRecords) * 100).toFixed(1)
+          : '0.0';
+
+        // Calculate STG Compliance
+        const compliantCount = patientRows.filter(row => 
+          row['Guideline Compliance'] === 'Yes'
+        ).length;
+        
+        const compliancePercentage = totalRecords > 0
+          ? ((compliantCount / totalRecords) * 100).toFixed(1)
+          : '0.0';
+
+        console.log('📈 AMU Dashboard: Calculated metrics:', {
+          totalRecords,
+          patientsWithAntibiotics,
+          prevalencePercentage,
+          watchReserveCount,
+          watchReservePercentage,
+          targetedCount,
+          targetedPercentage,
+          cultureYesCount,
+          cultureLabPercentage,
+          compliantCount,
+          compliancePercentage
         });
-        
-        setAwareData({
-          watchReservePercentage: data.watchReservePercentage || '0.0',
-          totalRecords: data.totalRecords || 0,
-          watchReserveCount: data.watchReserveCount || 0,
-          loading: false,
-          error: null
+
+        setCalculatedMetrics({
+          totalRecords,
+          patientsWithAntibiotics,
+          prevalencePercentage,
+          watchReserveCount,
+          watchReservePercentage,
+          targetedCount,
+          targetedPercentage,
+          cultureYesCount,
+          cultureLabPercentage,
+          compliantCount,
+          compliancePercentage
         });
-        
+
       } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching AWaRe data:', err);
-        setAwareData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch AWaRe data'
-        }));
+        console.error('❌ AMU Dashboard: Error calculating metrics:', err);
       }
     };
 
-    const fetchTotalRecordsData = async () => {
-      try {
-        console.log('🔍 AMU Dashboard: Fetching total record count from AMU_HH table...');
-        
-        const data = await makeServerRequest('amu-national');
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        console.log('📊 AMU Dashboard: Received total records data:', {
-          total: data.totalRecords,
-          dataSource: data.dataSource
-        });
-        
-        setTotalRecordsData({
-          totalRecords: data.totalRecords || 0,
-          loading: false,
-          error: null
-        });
-        
-      } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching total records data:', err);
-        setTotalRecordsData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch total records data'
-        }));
-      }
-    };
-
-    const fetchTargetedTherapyData = async () => {
-      try {
-        console.log('🔍 AMU Dashboard: Fetching targeted therapy data from AMU_HH table...');
-        
-        const data = await makeServerRequest('amu-targeted-therapy?no_filters=true');
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        console.log('📊 AMU Dashboard: Received targeted therapy data:', {
-          total: data.totalRecords,
-          targeted: data.targetedCount,
-          percentage: data.targetedPercentage,
-          dataSource: data.dataSource
-        });
-        
-        setTargetedTherapyData({
-          targetedPercentage: data.targetedPercentage || '0.0',
-          totalRecords: data.totalRecords || 0,
-          targetedCount: data.targetedCount || 0,
-          loading: false,
-          error: null
-        });
-        
-      } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching targeted therapy data:', err);
-        setTargetedTherapyData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch targeted therapy data'
-        }));
-      }
-    };
-
-    const fetchCultureLabData = async () => {
-      try {
-        console.log('🔍 AMU Dashboard: Fetching culture sent to lab data from AMU_HH table...');
-        
-        const data = await makeServerRequest('amu-culture-lab?no_filters=true');
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        console.log('📊 AMU Dashboard: Received culture lab data:', {
-          total: data.totalRecords,
-          cultureYes: data.cultureYesCount,
-          percentage: data.cultureLabPercentage,
-          dataSource: data.dataSource
-        });
-        
-        setCultureLabData({
-          cultureLabPercentage: data.cultureLabPercentage || '0.0',
-          totalRecords: data.totalRecords || 0,
-          cultureYesCount: data.cultureYesCount || 0,
-          loading: false,
-          error: null
-        });
-        
-      } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching culture lab data:', err);
-        setCultureLabData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch culture lab data'
-        }));
-      }
-    };
-
-    const fetchStgComplianceData = async () => {
-      try {
-        console.log('🔍 AMU Dashboard: Fetching STG compliance data from AMU_HH table...');
-        
-        const data = await makeServerRequest('amu-guideline-compliance?no_filters=true');
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        console.log('📊 AMU Dashboard: Received STG compliance data:', {
-          total: data.totalRecords,
-          compliant: data.compliantCount,
-          percentage: data.compliancePercentage,
-          dataSource: data.dataSource
-        });
-        
-        setStgComplianceData({
-          compliancePercentage: data.compliancePercentage || '0.0',
-          totalRecords: data.totalRecords || 0,
-          compliantCount: data.compliantCount || 0,
-          loading: false,
-          error: null
-        });
-        
-      } catch (err) {
-        console.error('❌ AMU Dashboard: Error fetching STG compliance data:', err);
-        setStgComplianceData(prev => ({
-          ...prev,
-          loading: false,
-          error: err.message || 'Failed to fetch STG compliance data'
-        }));
-      }
-    };
-
-    fetchPrevalenceData();
-    fetchAwareData();
-    fetchTotalRecordsData();
-    fetchTargetedTherapyData();
-    fetchCultureLabData();
-    fetchStgComplianceData();
+    fetchAmuHumanData();
   }, []);
 
   const amuSummaryData = [
     {
       title: 'Total Records',
-      value: totalRecordsData.loading ? 'Loading...' : 
-             totalRecordsData.error ? 'Error' : 
-             totalRecordsData.totalRecords.toLocaleString(),
-      subtitle: totalRecordsData.loading ? 'Fetching data...' :
-                totalRecordsData.error ? 'Data unavailable' :
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             calculatedMetrics.totalRecords.toLocaleString(),
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
                 'Patient records',
       icon: <ShieldAlert className="h-5 w-5" />,
-      color: totalRecordsData.error ? 'warning' as const : 'default' as const
+      color: error ? 'warning' as const : 'default' as const
     },
     {
       title: 'AMU Prevalence',
-      value: prevalenceData.loading ? 'Loading...' : 
-             prevalenceData.error ? 'Error' : 
-             `${prevalenceData.prevalencePercentage}%`,
-      subtitle: prevalenceData.loading ? 'Fetching data...' :
-                prevalenceData.error ? 'Data unavailable' :
-                 'of all patients',
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             `${calculatedMetrics.prevalencePercentage}%`,
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
+                `of ${calculatedMetrics.totalRecords} patients`,
       icon: <Tablets className="h-5 w-5" />,
-      color: prevalenceData.error ? 'warning' as const : 'default' as const
+      color: error ? 'warning' as const : 'default' as const
     },
     {
       title: 'WaRe Share',
-      value: awareData.loading ? 'Loading...' : 
-             awareData.error ? 'Error' : 
-             `${awareData.watchReservePercentage}%`,
-      subtitle: awareData.loading ? 'Fetching data...' :
-                awareData.error ? 'Data unavailable' :
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             `${calculatedMetrics.watchReservePercentage}%`,
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
                 'of all prescriptions',
       icon: <Lock className="h-5 w-5" />,
-      color: awareData.error ? 'warning' as const : 'warning' as const
+      color: error ? 'warning' as const : 'warning' as const
     },
     {
       title: 'Targeted Therapy',
-      value: targetedTherapyData.loading ? 'Loading...' : 
-             targetedTherapyData.error ? 'Error' : 
-             `${targetedTherapyData.targetedPercentage}%`,
-      subtitle: targetedTherapyData.loading ? 'Fetching data...' :
-                targetedTherapyData.error ? 'Data unavailable' :
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             `${calculatedMetrics.targetedPercentage}%`,
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
                 'of all prescriptions',
       icon: <Target className="h-5 w-5" />,
-      color: targetedTherapyData.error ? 'warning' as const : 'default' as const
+      color: error ? 'warning' as const : 'default' as const
     },
     {
       title: 'Culture At/Before Start',
-      value: cultureLabData.loading ? 'Loading...' : 
-             cultureLabData.error ? 'Error' : 
-             `${cultureLabData.cultureLabPercentage}%`,
-      subtitle: cultureLabData.loading ? 'Fetching data...' :
-                cultureLabData.error ? 'Data unavailable' :
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             `${calculatedMetrics.cultureLabPercentage}%`,
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
                 'of all prescriptions',
       icon: <Microscope className="h-5 w-5" />,
-      color: cultureLabData.error ? 'warning' as const : 'default' as const
+      color: error ? 'warning' as const : 'default' as const
     },
     {
       title: 'STG Compliance',
-      value: stgComplianceData.loading ? 'Loading...' : 
-             stgComplianceData.error ? 'Error' : 
-             `${stgComplianceData.compliancePercentage}%`,
-      subtitle: stgComplianceData.loading ? 'Fetching data...' :
-                stgComplianceData.error ? 'Data unavailable' :
+      value: loading ? 'Loading...' : 
+             error ? 'Error' : 
+             `${calculatedMetrics.compliancePercentage}%`,
+      subtitle: loading ? 'Fetching data...' :
+                error ? 'Data unavailable' :
                 'Rx aligned to STGs',
       icon: <CheckCircle className="h-5 w-5" />,
-      color: stgComplianceData.error ? 'warning' as const : 'success' as const
+      color: error ? 'warning' as const : 'success' as const
     }
   ];
 
   return (
     <div className="space-y-6">
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <Cross className="h-5 w-5 text-red-600 mr-2" />
+            <p className="text-red-800 text-sm font-medium">Error: {error}</p>
+          </div>
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-lg" style={{ backgroundColor: 'rgba(186, 184, 108, 0.2)' }}>
         {amuSummaryData.map((card, index) => (
@@ -437,8 +332,22 @@ export function AmuDashboard() {
         ))}
       </div>
 
+      {/* Debug Information */}
+      {apiData && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center mb-2">
+            <FlaskConical className="h-5 w-5 text-blue-600 mr-2" />
+            <p className="text-blue-800 text-sm font-medium">Data Source Information</p>
+          </div>
+          <p className="text-blue-700 text-xs">
+            Node: {apiData.data.nodeName} | Total Rows: {apiData.data.totalRows} | 
+            Columns: {apiData.data.columns.length} | Data Rows: {calculatedMetrics.totalRecords}
+          </p>
+        </div>
+      )}
+
       {/* Charts */}
-      <AmuCharts />
+      {!loading && !error && <AmuCharts />}
     </div>
   );
 }

@@ -90,7 +90,7 @@ export function AmcSummaryCards() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('https://backend.ajhiveprojects.com/v1/amc-animal');
+      const response = await fetch('https://backend.ajhiveprojects.com/v1/amc-human-1');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

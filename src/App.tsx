@@ -21,6 +21,7 @@ import { AMR_SIR_DonutChart } from "./components/AMR_SIR_DonutChart";
 import { AMR_SIR_ProfileChart } from "./components/AMR_SIR_ProfileChart";
 import { FilterConfigAdmin } from "./components/FilterConfigAdmin";
 import { projectId, publicAnonKey } from './utils/supabase/info';
+import {AmuAnimal} from "./components/AmuAnimal";
 
 const gassLogo = image_492ad16eb6072aa5f9b5a0e930b78d688bbc540c;
 
@@ -419,20 +420,7 @@ export default function App() {
             )}
 
             {activeDashboard === "amu-animal" && (
-              <div className="space-y-6">
-                <div className="text-center py-16">
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    Animal Health AMU Dashboard
-                  </h3>
-                  <p className="text-gray-600">
-                    Animal health antimicrobial usage data and
-                    analytics will be displayed here.
-                  </p>
-                  <p className="text-gray-500 text-sm mt-2">
-                    Feature coming soon...
-                  </p>
-                </div>
-              </div>
+              <AmuAnimal />
             )}
 
             {activeDashboard === "filter-demo" && <StandaloneFilterDemo />}
